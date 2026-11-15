@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/qx-core", "crates/qx-desktop", "crates/qx-bevy"]
+members = ["crates/qx-core", "crates/qx-desktop", "crates/qx-bevy", "crates/embed-model"]
 
 [workspace.package]
 edition = "2024"

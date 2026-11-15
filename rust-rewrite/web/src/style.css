@@ -20,7 +20,12 @@
   /* ─────────── 顶栏 ─────────── */
   .topbar{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;
     align-items:flex-start;padding:34px 44px 0;z-index:8;pointer-events:none}
-  .brand .bar{width:2px;height:40px;background:linear-gradient(180deg,var(--accent),transparent);margin-bottom:12px}
+  /* 竖线贯穿「标 + 字」整块：原来是 40px 定高，加了标志后必须跟着长，否则像两根断开的线 */
+  .brand{display:flex;gap:14px;align-items:center}
+  .brand .bar{width:2px;align-self:stretch;background:linear-gradient(180deg,var(--accent),transparent);flex:0 0 2px}
+  .brand-txt{display:flex;flex-direction:column}
+  /* 标志与字标并排而不是叠在上方：叠放会把顶栏撑到 110px，压住下方抽屉 */
+  .brand-logo{width:54px;height:54px;display:block;flex:0 0 54px;opacity:.96}
   .brand h1{font-family:"Songti SC","SimSun",serif;font-size:24px;font-weight:600;letter-spacing:.22em}
   .brand p{margin-top:7px;font-size:11px;letter-spacing:.34em;color:var(--dim)}
 
@@ -347,6 +352,8 @@
      --kb 由 visualViewport 写入，软键盘弹出时舞台与抽屉整体上移 */
   @media (max-width:860px){
     .topbar{padding:calc(12px + env(safe-area-inset-top,0px)) 14px 0}
+    .brand{gap:10px}
+    .brand-logo{width:30px;height:30px;flex:0 0 30px}
     .brand h1{font-size:18px;letter-spacing:.14em}
     .brand p{font-size:10px;letter-spacing:.2em}
     .nav{flex-wrap:wrap;justify-content:flex-end;max-width:58vw}

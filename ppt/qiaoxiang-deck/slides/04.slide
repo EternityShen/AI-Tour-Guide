@@ -1,0 +1,128 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#F5F1E8', padding: '24px 72px', flexDirection: 'column' }}>
+    <Box style={{ height: 104, flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        <Box style={{ width: 3, height: 34, background: '#A8402F' }} />
+        <Box style={{ flexDirection: 'column' }}>
+            <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                六个展项，三十条可以逐条校对的知识
+            </Text>
+            <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.5, marginTop: 8, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                下面每段介绍都是主题包里的原文，不是宣传稿
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 508, flexDirection: 'row', gap: 34 }}>
+        <Box style={{ width: 292, background: '#2B4A45', padding: '32px 28px', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <Box>
+                <Text style={{ fontSize: 58, color: '#F5F1E8', fontWeight: 'bold', lineHeight: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    30
+                </Text>
+                <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.6, marginTop: 10, letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    条知识条目
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'column', gap: 10 }}>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.5, letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    怎么算出来的
+                </Text>
+                <Text style={{ fontSize: 15, color: '#F5F1E8', opacity: 0.88, lineHeight: 1.8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    6 个展项 ×（讲解稿 1 段
+                    <br />
+                    ＋ 深讲 1 段
+                    <br />
+                    ＋ 问答 3 条）＝ 30 条
+                </Text>
+            </Box>
+
+            <Box style={{ width: 88, height: 3, background: '#A8402F' }} />
+
+            <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.62, lineHeight: 1.75, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                另有 12 道互动问答题、6 组问候闲聊、1 段游览动线，不计入这 30 条。
+            </Text>
+        </Box>
+
+        <Box style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 18 }}>
+            <Box style={{ width: 246, height: 232, background: 'rgba(43,74,69,0.06)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    01 · 3D 模型展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    开平碉楼
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    华侨汇款回乡所建的多层塔楼，兼作住家与堡垒，开平现存一千八百多座。
+                </Text>
+            </Box>
+
+            <Box style={{ width: 246, height: 232, background: 'rgba(43,74,69,0.06)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    02 · 3D 模型展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    赤坎古镇
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    潭江边的华侨商埠，两公里骑楼街，楼下经商、楼上住人。
+                </Text>
+            </Box>
+
+            <Box style={{ width: 246, height: 232, background: 'rgba(43,74,69,0.06)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    03 · 3D 模型展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    梁启超故居
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    新会茶坑村的青砖民居，梁启超一八七三年生于此。
+                </Text>
+            </Box>
+
+            <Box style={{ width: 246, height: 232, background: 'rgba(43,74,69,0.06)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    04 · 程序化展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    新会陈皮
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    茶枝柑果皮晒干陈化三年以上而成，粤菜与中药里的老底子。
+                </Text>
+            </Box>
+
+            <Box style={{ width: 246, height: 232, background: 'rgba(168,64,47,0.08)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    05 · 3D 模型展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    侨批银信
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    汇款与家书合一的信件，粤语称信为「批」，二〇一三年入选世界记忆遗产。
+                </Text>
+            </Box>
+
+            <Box style={{ width: 246, height: 232, background: 'rgba(43,74,69,0.06)', padding: '20px 18px', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 2, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    06 · 程序化展台
+                </Text>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    小鸟天堂
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.7, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    新会天马村一棵四百多年的古榕，因巴金《鸟的天堂》闻名。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡 · 江门 AI 智能讲解员
+        </Text>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            04 / 14
+        </Text>
+    </Box>
+</Slide>

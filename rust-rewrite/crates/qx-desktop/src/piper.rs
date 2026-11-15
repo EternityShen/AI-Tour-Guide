@@ -1,11 +1,17 @@
 //! 离线神经语音合成：Piper VITS（zh_CN-huayan 女声）+ espeak-ng 音素化。
 //!
 //! 这是「真实女孩子声音」的关键：替换掉 Windows System.Speech 的机械拼接音。
-//! 与原 Python 版一致的技术栈（Piper + onnxruntime），但完全用 Rust 驱动，不依赖
-//! Python：
-//!   * 音素化：`espeakbridge.pyd`（piper 1.8 轮子里的 espeak-ng 静态链接库，
-//!     已验证导出 espeak_Initialize / espeak_SetVoiceByName / espeak_TextToPhonemes）；
-//!   * 声学模型：`zh_CN-huayan-medium.onnx`（原 `server/models/piper` 同款，22050 Hz）；
+//! 与原 Python 版一致的技术栈（Piper + onnxruntime），但完全用 Rust 驱动。
+//!
+//! ⚠️ 已知问题（2026-11-12 定位）：`espeakbridge.pyd` 是 **CPython 扩展模块**，
+//! 依赖 `python3.dll`（二进制里可见 `python3.dll` 导入）。Python 进程能加载它，
+//! 但 Rust exe 运行时没有 Python 运行时，`LoadLibraryW` 直接失败 → Piper 的
+//! `load_ms` 恒 0、离线合成不可用。要修好它，需换成**不依赖 Python 的纯 C
+//! espeak-ng**（或改用别的中文 G2P 方案），见 MEMORY.md。
+//!
+//!   * 音素化：`espeakbridge.pyd`（导出 espeak_Initialize / espeak_SetVoiceByName /
+//!     espeak_TextToPhonemes）；
+//!   * 声学模型：`zh_CN-huayan-medium.onnx`（22050 Hz）；
 //!   * 推理：`ort`（onnxruntime 动态加载 `tts/onnxruntime.dll`）。
 //!
 //! 全部离线，无需联网；单句 30 字合成约 0.2~0.9 s（RTF≈0.14），语速≈5.5 字/秒。
@@ -74,16 +80,21 @@ impl PiperTts {
     fn init_inner(&self) -> Option<Inner> {
         let dir = &self.dir;
         if !self.has_assets() {
+            eprintln!("[piper] 缺少 TTS 资产（{}）", dir.display());
             return None;
         }
         unsafe {
             let h = LoadLibraryW(wide(&dir.join("espeakbridge.pyd").to_string_lossy()).as_ptr());
             if h.is_null() {
+                eprintln!("[piper] 加载 espeakbridge.pyd 失败（dir={}）", dir.display());
                 return None;
             }
             let sym = |n: &str| -> Option<*mut c_void> {
                 let c = CString::new(n).ok()?;
                 let p = GetProcAddress(h, c.as_ptr());
+                if p.is_null() {
+                    eprintln!("[piper] espeakbridge.pyd 缺导出符号 {n}");
+                }
                 (!p.is_null()).then_some(p)
             };
             let init: EspeakInit = std::mem::transmute(sym("espeak_Initialize")?);
@@ -92,26 +103,61 @@ impl PiperTts {
 
             let data = CString::new(dir.to_string_lossy().as_bytes()).ok()?;
             // AUDIO_OUTPUT_SYNCHRONOUS = 2，返回采样率
-            if init(2, 0, data.as_ptr(), 0) <= 0 {
+            let rate = init(2, 0, data.as_ptr(), 0);
+            if rate <= 0 {
+                eprintln!("[piper] espeak_Initialize 失败：rate={rate}");
                 return None;
             }
             let voice = CString::new("cmn").ok()?;
             if set_voice(voice.as_ptr()) != 0 {
+                eprintln!("[piper] espeak_SetVoiceByName(cmn) 失败");
                 return None;
             }
 
-            let env = ort::init_from(dir.join("onnxruntime.dll")).ok()?.build().ok()?;
-            let session = Session::builder(&env)
-                .ok()?
-                .commit_from_file(dir.join("zh_CN-huayan-medium.onnx"))
-                .ok()?;
+            let env = match ort::init_from(dir.join("onnxruntime.dll")) {
+                Ok(b) => match b.build() {
+                    Ok(env) => env,
+                    Err(e) => {
+                        eprintln!("[piper] onnxruntime 初始化失败：{e}");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("[piper] 加载 onnxruntime.dll 失败：{e}");
+                    return None;
+                }
+            };
+            let session = match Session::builder(&env) {
+                Ok(mut b) => match b.commit_from_file(dir.join("zh_CN-huayan-medium.onnx")) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[piper] 加载 huayan.onnx 失败：{e}");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("[piper] 创建 ORT 会话失败：{e}");
+                    return None;
+                }
+            };
 
-            let json: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(dir.join("zh_CN-huayan-medium.onnx.json")).ok()?,
-            )
-            .ok()?;
+            let json: serde_json::Value = match serde_json::from_str(
+                &std::fs::read_to_string(dir.join("zh_CN-huayan-medium.onnx.json"))
+                    .map_err(|e| eprintln!("[piper] 读取 onnx.json 失败：{e}"))
+                    .ok()?,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[piper] 解析 onnx.json 失败：{e}");
+                    return None;
+                }
+            };
+            let Some(pm) = json["phoneme_id_map"].as_object() else {
+                eprintln!("[piper] onnx.json 缺 phoneme_id_map");
+                return None;
+            };
             let mut map = HashMap::new();
-            for (k, v) in json["phoneme_id_map"].as_object()? {
+            for (k, v) in pm {
                 if let Some(id) = v.as_array().and_then(|a| a.first()).and_then(|x| x.as_i64()) {
                     if let Some(ch) = k.chars().next() {
                         // 音素表键均为单码点字符

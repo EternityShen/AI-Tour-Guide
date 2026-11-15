@@ -1,4 +1,5 @@
 use qx_core::{Guide, LlmClient, Message, Metrics, NoLlm, OllamaClient, Theme};
+use std::sync::{Arc, Mutex};
 
 fn theme_path() -> String {
     // 项目重组后 themes/ 位于 rust-rewrite/ 下：qx-core 上两级即 rust-rewrite。
@@ -115,12 +116,118 @@ fn stub_llm_path_cleans_output() {
             Ok("小侨：这是一段**回答**。\n要不要我带你去看侨乡的其他展品？".into())
         }
     }
-    let g = Guide::with_llm(Theme::load(theme_path()).unwrap(), Box::new(Stub));
+    let g = Guide::with_llm(Theme::load(theme_path()).unwrap(), Arc::new(Stub));
     let a = g.answer("随便聊点别的", None, false, None);
     assert_eq!(a.action, "chat");
     assert!(!a.reply.starts_with("小侨："), "应去掉讲解员前缀");
     assert!(!a.reply.contains("**"), "应去掉 markdown 标记");
     assert!(!a.reply.contains("要不要我带你去看"), "应剪掉拉回展品的尾句");
+}
+
+#[test]
+fn think_block_is_stripped_from_llm_output() {
+    struct Thinking;
+    impl qx_core::LlmClient for Thinking {
+        fn chat(&self, _: &[Message], _: f32, _: u32) -> Result<String, String> {
+            Ok("<think>用户想了解侨批，我先想一下该怎么讲……</think>\n\n\
+                 侨批是海外华侨寄回家乡的信与汇款合一的家书。"
+                .into())
+        }
+    }
+    let g = Guide::with_llm(Theme::load(theme_path()).unwrap(), Arc::new(Thinking));
+    let a = g.answer("随便聊点别的", None, false, None);
+    assert_eq!(a.action, "chat");
+    assert!(!a.reply.contains("think"), "思维链标签必须被剥离: {}", a.reply);
+    assert!(!a.reply.contains("我先想一下"), "思维链内容必须被剥离: {}", a.reply);
+    assert!(a.reply.contains("侨批"), "正文应保留: {}", a.reply);
+
+    // 未闭合的思维链（被长度截断）也不能污染讲解词
+    struct Truncated;
+    impl qx_core::LlmClient for Truncated {
+        fn chat(&self, _: &[Message], _: f32, _: u32) -> Result<String, String> {
+            Ok("<think>正在思考中".into())
+        }
+    }
+    let g2 = Guide::with_llm(Theme::load(theme_path()).unwrap(), Arc::new(Truncated));
+    let a2 = g2.answer("随便聊点别的", None, false, None);
+    assert!(!a2.reply.contains("think"), "未闭合标签也应被清掉: {}", a2.reply);
+    assert!(!a2.reply.contains("正在思考"), "未闭合思维链内容也应被清掉: {}", a2.reply);
+}
+
+#[test]
+fn image_messages_reach_vision_model() {
+    struct Recorder(Arc<Mutex<Vec<Message>>>);
+    impl qx_core::LlmClient for Recorder {
+        fn chat(&self, msgs: &[Message], _: f32, _: u32) -> Result<String, String> {
+            *self.0.lock().unwrap() = msgs.to_vec();
+            Ok("画面里是开平碉楼，建于清末民初，兼具防卫与居住功能。".into())
+        }
+    }
+    let seen = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let g = Guide::with_llm(
+        Theme::load(theme_path()).unwrap(),
+        Arc::new(Recorder(seen.clone())),
+    );
+
+    // 只拖图、不打字：必须走视觉模型，而不是被空输入分支吞成欢迎语
+    let a = g.answer_with_images("", None, false, None, &["AAAA".to_string()]);
+    assert_eq!(a.action, "chat");
+    assert!(a.reply.contains("碉楼"), "回复应来自视觉模型: {}", a.reply);
+    {
+        let msgs = seen.lock().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs[0].content.contains("先看清图片"), "应使用识图专用提示词");
+        assert_eq!(msgs[1].images, vec!["AAAA".to_string()]);
+        assert!(msgs[1].content.contains("看看这张图"));
+    }
+
+    // 纯文本问答仍不带图片，Ollama 请求体与迁移前一致
+    let _ = g.answer("随便聊点别的", None, false, None);
+    let msgs = seen.lock().unwrap();
+    assert!(msgs.iter().all(|m| m.images.is_empty()), "文本问答不应夹带图片");
+}
+
+#[test]
+fn image_request_serializes_to_ollama_protocol() {
+    let plain = serde_json::to_value(Message::user("你好")).unwrap();
+    assert!(plain.get("images").is_none(), "空图片数组不应出现在请求体里");
+
+    let with = serde_json::to_value(
+        Message::user("看看这张图").with_images(vec!["AAAA".to_string()]),
+    )
+    .unwrap();
+    assert_eq!(with["images"][0], "AAAA");
+    assert_eq!(with["role"], "user");
+}
+
+#[test]
+fn image_only_without_vision_has_clear_fallback() {
+    // 纯文本后端（本地 GGUF）：不支持视觉
+    struct TextOnly;
+    impl qx_core::LlmClient for TextOnly {
+        fn chat(&self, _: &[Message], _: f32, _: u32) -> Result<String, String> {
+            Ok("这是纯文本回答。".into())
+        }
+        fn supports_vision(&self) -> bool {
+            false
+        }
+    }
+    let g = Guide::with_llm(Theme::load(theme_path()).unwrap(), Arc::new(TextOnly));
+    let a = g.answer_with_images("", None, false, None, &["AAAA".to_string()]);
+    assert_eq!(a.action, "fallback");
+    assert!(a.reply.contains("看不了"), "要说清原因: {}", a.reply);
+
+    // 图 + 文字：视觉不可用时文字问题不能一起丢掉（DEF-20）
+    let b = g.answer_with_images("随便聊点别的", None, false, None, &["AAAA".to_string()]);
+    assert_eq!(b.action, "chat");
+    assert!(b.reply.contains("纯文本回答"));
+
+    // Ollama 没起（NoLlm）时 likewise 给明确降级，而不是通用兜底
+    let g0 = guide();
+    let c = g0.answer_with_images("", None, false, None, &["AAAA".to_string()]);
+    assert_eq!(c.action, "fallback");
+    assert!(c.reply.contains("看不了"), "要说清原因: {}", c.reply);
+    assert!(!g0.vision_available() && !NoLlm.supports_vision());
 }
 
 #[test]

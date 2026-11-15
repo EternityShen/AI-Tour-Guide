@@ -4,8 +4,11 @@
 //! 程序化贴图、中文 UI 全部由原来的 `app/` 目录渲染，本文件一行前端代码都不改。
 //! Python 后端被替换成：qx-core 的知识库路由 + Ollama 客户端 + 系统语音合成。
 
+use crate::asr::{append_pcm, Asr};
+use crate::edge_tts::EdgeTts;
 use crate::piper::PiperTts;
-use qx_core::{Guide, LlmClient, Message, OllamaClient, Theme};
+use crate::winrt_tts::WinrtTts;
+use qx_core::{Guide, LlmClient, Message, NoLlm, OllamaClient, Theme};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -26,6 +29,182 @@ const LOCAL_LIMIT: usize = 60;
 const PUBLIC_LIMIT: usize = 20;
 const TEXT_MAX: usize = 500;
 const INLINE_AUDIO_LIMIT: usize = 300_000;
+// 与前端 images.js 一致：最多 3 张、单张 base64 上限 2.5M 字符。
+// 请求体整体上限见 parse_request 的 8 MiB，压缩后一般远小于此。
+const IMAGE_COUNT_MAX: usize = 3;
+const IMAGE_CHARS_MAX: usize = 2_500_000;
+
+/// LLM 后端选择：决定问答里的自由回答走哪条推理通道。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LlmBackend {
+    /// 默认：走 Ollama 兼容协议（本地或远端 Ollama / llama-server 都行）。
+    Auto,
+    /// 显式走 Ollama 兼容协议。
+    Ollama,
+    /// 本地 GGUF 模型（需 `--features local-llm` 构建，并把路径传给 --model）。
+    Local,
+    /// 完全关闭 LLM，自由回答回落到兜底话术（演示保底）。
+    None,
+}
+
+impl Default for LlmBackend {
+    fn default() -> Self {
+        LlmBackend::Auto
+    }
+}
+
+/// 启动参数解析出的 LLM 配置，贯穿 AppState 的生命周期。
+/// 不能用 derive(Default)：那会把地址与模型名初始化成空字符串，
+/// 双击启动时 Ollama 客户端就会连到空地址、请求体里 model 也为空，
+/// 结果所有自由问答静默退回兜底话术。默认值必须与 OllamaClient 一致。
+#[derive(Clone)]
+pub struct LlmConfig {
+    pub backend: LlmBackend,
+    /// Ollama / llama-server 兼容协议的地址（默认本机 11434）。
+    pub ollama_url: String,
+    /// 模型名（默认 qwen3.5:4b，保持与旧行为一致；本地 GGUF 旁路时也用作展示名）。
+    pub ollama_model: String,
+    /// 本地 GGUF 模型文件路径（Local 后端使用）。
+    pub local_model: Option<PathBuf>,
+    /// 多模态投影器 GGUF：内置 Qwen2.5-VL 用它看图（外置纯文本 GGUF 时为 None）。
+    pub local_mmproj: Option<PathBuf>,
+    /// 是否使用 exe 内嵌模型；为真时不走 Ollama 视觉旁路，且 stats 显示内置模型名。
+    pub embedded_model: bool,
+    /// 知识库摘要，以提示词方式注入本地 LLM 的 system message。
+    pub kb_prompt: String,
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        let d = OllamaClient::default();
+        Self {
+            backend: LlmBackend::Auto,
+            ollama_url: d.host,
+            ollama_model: d.model,
+            local_model: None,
+            local_mmproj: None,
+            embedded_model: false,
+            kb_prompt: String::new(),
+        }
+    }
+}
+
+/// 根据配置构造一个 LLM 客户端，可跨线程共享。
+pub fn build_llm(cfg: &LlmConfig) -> Arc<dyn LlmClient> {
+    match cfg.backend {
+        LlmBackend::None => Arc::new(NoLlm),
+        LlmBackend::Ollama | LlmBackend::Auto => {
+            // 防御性兜底：即便有人手工构造了空配置，也不能让后端连到空地址。
+            let d = OllamaClient::default();
+            Arc::new(OllamaClient {
+                host: if cfg.ollama_url.trim().is_empty() { d.host } else { cfg.ollama_url.clone() },
+                model: if cfg.ollama_model.trim().is_empty() { d.model } else { cfg.ollama_model.clone() },
+                timeout: Duration::from_secs(45),
+            })
+        }
+        LlmBackend::Local => match &cfg.local_model {
+            Some(path) => {
+                #[cfg(feature = "local-llm")]
+                {
+                    match crate::local_llm::LocalLlm::load(
+                        path,
+                        cfg.local_mmproj.as_deref(),
+                        cfg.kb_prompt.clone(),
+                    ) {
+                        Ok(m) => {
+                            // 内置 Qwen2.5-VL 自带 mmproj，看图就在本进程完成，
+                            // 不必（也不该）再经 Ollama 旁路；只有外置纯文本 GGUF
+                            // 才需要把图片请求转给本机 VL 模型。
+                            if cfg.embedded_model {
+                                eprintln!("ℹ️ 内置 VL 模型已就绪：文本与看图均由本进程推理");
+                                return Arc::new(m);
+                            }
+                            let host = if cfg.ollama_url.trim().is_empty() {
+                                OllamaClient::default().host
+                            } else {
+                                cfg.ollama_url.clone()
+                            };
+                            let fb = crate::vision_route::probe_vision(&host);
+                            match &fb {
+                                Some(f) => eprintln!(
+                                    "ℹ️ Local 版视觉旁路已启用：图片请求转由 Ollama 的 {} 处理",
+                                    f.model
+                                ),
+                                None => eprintln!(
+                                    "ℹ️ Local 版未找到可用的视觉模型，看图请求将按原样降级"
+                                ),
+                            }
+                            let primary: Arc<dyn LlmClient> = Arc::new(m);
+                            Arc::new(crate::vision_route::VisionRoute::new(primary, fb))
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️ 本地模型加载失败，回退到无 LLM：{e}");
+                            Arc::new(NoLlm)
+                        }
+                    }
+                }
+                #[cfg(not(feature = "local-llm"))]
+                {
+                    let _ = path; // 默认构建未编译本地引擎，路径仅用于提示
+                    eprintln!(
+                        "⚠️ 指定了 --model 但未用 `--features local-llm` 构建，本地引擎未编译；回退到无 LLM。\
+                         \n   立即自包含演示请用 llama-server 旁路：另开一个终端 `llama-server -m <模型> --port 11434`，\
+                         \n   本程序保持默认 Ollama 后端即可（它兼容 llama-server 的 /api/chat）。"
+                    );
+                    Arc::new(NoLlm)
+                }
+            }
+            None => {
+                eprintln!("⚠️ 后端为 Local 但未提供 --model 路径，回退到无 LLM");
+                Arc::new(NoLlm)
+            }
+        },
+    }
+}
+
+/// 供 /api/stats 展示的后端类型与模型名。
+fn describe_llm(cfg: &LlmConfig) -> (String, String) {
+    match cfg.backend {
+        LlmBackend::None => ("none".into(), "-".into()),
+        LlmBackend::Local => (
+            "local".into(),
+            if cfg.embedded_model {
+                "内置 Qwen2.5-VL-3B".into()
+            } else {
+                cfg.local_model
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            },
+        ),
+        LlmBackend::Ollama | LlmBackend::Auto => (
+            "ollama".into(),
+            if cfg.ollama_model.trim().is_empty() {
+                OllamaClient::default().model
+            } else {
+                cfg.ollama_model.clone()
+            },
+        ),
+    }
+}
+
+/// 把知识库压成一段 system prompt 喂给内置 3B 模型（「数据库以提示词方式喂给 AI」）。
+/// 只取展品名 + 讲解词 + 前 2 条 FAQ 并逐条截短，控制总量约 2–3 KB，
+/// 不挤爆 8K 上下文；确定性 KB 路由仍照旧优先，LLM 只在兜底时用到它。
+fn kb_prompt(theme: &Theme) -> String {
+    let short = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    let mut out = String::from(
+        "你是侨乡江门展厅的 AI 讲解员小侨。下面是展厅讲解资料，回答只能依据这些资料，\
+         口语化、不超过 80 字，不编造年份和数字：\n",
+    );
+    for e in &theme.exhibits {
+        out.push_str(&format!("【{}】{}\n", e.name, short(&e.script, 60)));
+        for f in e.faq.iter().take(1) {
+            out.push_str(&format!("问：{} 答：{}\n", short(&f.q, 30), short(&f.a, 80)));
+        }
+    }
+    out
+}
 
 pub struct AppState {
     pub root: PathBuf,
@@ -33,23 +212,41 @@ pub struct AppState {
     pub web_root: PathBuf,
     pub theme_id: String,
     pub theme: Theme,
-    /// 问答引擎：`answer()` 只读（OllamaClient 无状态），用 Arc 跨线程共享。
+    /// 问答引擎：`answer()` 只读（LLM 客户端无状态），用 Arc 跨线程共享。
     /// /api/ask 的 LLM 生成不再持有全局锁，stats / 静态资源 / 其他提问照常服务。
     pub guide: Arc<Guide>,
+    /// 与 guide 共享的同一份 LLM 客户端（reload 主题时复用，避免重复加载本地模型）。
+    llm: Arc<dyn LlmClient>,
+    /// 启动参数里的 LLM 配置（reload 时据此重建客户端）。
+    llm_cfg: LlmConfig,
+    /// 供 /api/stats 展示的后端类型与模型名。
+    llm_backend: String,
+    llm_model: String,
     /// 常驻语音合成进程（System.Speech 降级方案，见 TtsWorker）。
     pub tts: Arc<TtsWorker>,
-    /// 离线神经语音（Piper VITS，原版甜美音色），首选合成引擎。
+    /// 离线神经语音（Piper VITS，原版甜美音色），在线合成不可用时的首选。
     pub piper: Arc<PiperTts>,
+    /// 运行时在线「小伊」语音（纯 Rust，用于 LLM 动态回答，使音色与预置讲解词一致）。
+    pub edge: Arc<EdgeTts>,
+    /// 离线「小伊」（WinRT OneCore 自然语音 XiaoyiNeural）。系统没装语音包时为 None。
+    pub winrt: Option<Arc<WinrtTts>>,
     pub tts_cache: PathBuf,
+    /// 离线语音识别引擎（whisper.dll FFI，模型常驻）。不可用时 /api/stats 会如实上报。
+    pub asr: Arc<Asr>,
     pub requests: u64,
     pub llm_requests: u64,
     rates: HashMap<String, VecDeque<Instant>>,
 }
 
 impl AppState {
-    pub fn new(root: PathBuf, theme_id: &str) -> Result<Self, String> {
+    pub fn new(root: PathBuf, theme_id: &str, mut cfg: LlmConfig) -> Result<Self, String> {
         let theme = load_theme(&root, theme_id)?;
-        let guide = Arc::new(Guide::with_llm(theme.clone(), Box::new(OllamaClient::default())));
+        if cfg.kb_prompt.is_empty() {
+            cfg.kb_prompt = kb_prompt(&theme);
+        }
+        let llm = build_llm(&cfg);
+        let guide = Arc::new(Guide::with_llm(theme.clone(), Arc::clone(&llm)));
+        let (llm_backend, llm_model) = describe_llm(&cfg);
         let web_root = if root.join("web/index.html").is_file() {
             root.join("web")
         } else {
@@ -81,14 +278,26 @@ impl AppState {
                 }
             });
         }
+        // ASR 与 Piper 一样同步加载：base 模型约 0.3–0.6 s，让首句提问没有冷启动，
+        // /api/stats 打开自检面板时 asr_available 就已经是真实值。
+        // 必须在把 root 移进 Self 之前借用，否则会 use-after-move。
+        let asr = Asr::load(&root);
         Ok(Self {
             root,
             web_root,
             theme_id: theme_id.to_string(),
             theme,
             guide,
+            llm,
+            llm_cfg: cfg,
+            llm_backend,
+            llm_model,
             tts,
             piper,
+            edge: Arc::new(EdgeTts::new()),
+            asr,
+            // 离线小伊：WinRT OneCore 自然语音，加载失败（没装语音包）只是降级到静音。
+            winrt: WinrtTts::load().map(Arc::new),
             tts_cache,
             requests: 0,
             llm_requests: 0,
@@ -99,7 +308,9 @@ impl AppState {
     fn reload(&mut self, id: &str) -> Result<(), String> {
         let theme = load_theme(&self.root, id)?;
         self.theme = theme.clone();
-        self.guide = Arc::new(Guide::with_llm(theme, Box::new(OllamaClient::default())));
+        let llm = build_llm(&self.llm_cfg);
+        self.guide = Arc::new(Guide::with_llm(theme, Arc::clone(&llm)));
+        self.llm = llm;
         self.theme_id = id.to_string();
         Ok(())
     }
@@ -138,11 +349,13 @@ fn load_theme(root: &Path, id: &str) -> Result<Theme, String> {
 }
 
 /// 启动服务线程，返回实际监听端口。
-pub fn spawn(root: PathBuf, port: u16) -> Result<u16, String> {
+pub fn spawn(root: PathBuf, port: u16, cfg: LlmConfig) -> Result<u16, String> {
     let listener = TcpListener::bind(("127.0.0.1", port))
         .map_err(|e| format!("端口 {port} 绑定失败: {e}"))?;
     let actual = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let state = Arc::new(Mutex::new(AppState::new(root, "qiaoxiang")?));
+    let state = Arc::new(Mutex::new(AppState::new(root, "qiaoxiang", cfg)?));
+    // 预热用的客户端克隆（与 AppState 内同一份），避免持有 state 锁。
+    let warmup_llm = Arc::clone(&state.lock().unwrap().llm);
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             if let Ok(s) = stream {
@@ -151,12 +364,11 @@ pub fn spawn(root: PathBuf, port: u16) -> Result<u16, String> {
             }
         }
     });
-    // 启动预热：把 qwen3.5:4b 提前加载进显存（配合 keep_alive=-1 常驻），
-    // 用户首次提问不再支付数秒~十几秒的模型冷加载；Ollama 不在时静默跳过。
-    std::thread::spawn(|| {
-        if ollama_up() {
-            let c = OllamaClient::default();
-            let _ = c.chat(&[Message::user("（启动预热，请忽略）")], 0.0, 1);
+    // 启动预热：把模型提前加载常驻（Ollama keep_alive=-1 / 本地 GGUF 已常驻），
+    // 用户首次提问不再支付数秒~十几秒的冷加载；后端不可用时静默跳过。
+    std::thread::spawn(move || {
+        if warmup_llm.available() {
+            let _ = warmup_llm.chat(&[Message::user("（启动预热，请忽略）")], 0.0, 1);
         }
     });
     Ok(actual)
@@ -190,11 +402,12 @@ fn handle_conn(stream: TcpStream, state: Arc<Mutex<AppState>>) {
 
     let path = raw_path.split('?').next().unwrap_or("/").to_string();
 
-    // WebSocket：麦克风音频流。ASR 推理尚未 Rust 化，但握手与帧循环完整，
-    // 不会让前端弹出连接错误；键盘与快捷提问不受影响。
+    // WebSocket：麦克风音频流（16 kHz float32）/ END 收尾，见 asr.rs。
     if headers.get("upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket")) {
         if let Some(key) = headers.get("sec-websocket-key").cloned() {
-            handle_ws(&mut reader, &key);
+            // 只 clone Arc，不把 state 锁带进可能持续 28 秒的录音循环。
+            let asr = Arc::clone(&state.lock().unwrap().asr);
+            handle_ws(&mut reader, &key, &asr);
         }
         return;
     }
@@ -281,16 +494,23 @@ fn route(
         let st = state.lock().unwrap();
         let out = json!({
             // 首选神经语音就绪耗时；未就绪时退回系统语音的就绪耗时
-            "asr_load_ms": 0, "tts_load_ms": st.piper.load_ms().max(st.tts.load_ms()),
+            "asr_load_ms": st.asr.load_ms(), "tts_load_ms": st.piper.load_ms().max(st.tts.load_ms()),
             "llm_load_ms": 0,
-            // 主机版未接入离线识别：前端据此隐藏「离线语音识别」自检行
-            "asr_available": false,
+            // 离线识别已接入：前端据此启用「按住说话」并显示自检行
+            "asr_available": st.asr.available(),
             "requests": st.requests, "llm_requests": st.llm_requests,
             "tts_rtf": TTS_RTF_X100.load(Ordering::Relaxed) as f64 / 100.0,
+            "tts_edge": st.edge.status(),
+            "tts_winrt": st.winrt.as_ref().map(|w| w.ready()).unwrap_or(false),
+            // 赛前烘焙覆盖率与断网音色守卫状态，现场自检用
+            "tts_cache_files": cache_audio_count(&st.tts_cache),
+            "tts_offline_strict": offline_strict_enabled(),
             "kb_exhibits": st.theme.exhibits.len(), "kb_answers": st.theme.kb_answers(),
             "theme": st.theme_id,
-            "llm": {"available": ollama_up(), "model": "qwen3.5:4b",
-                    "host": "http://127.0.0.1:11434", "error": ""},
+            "llm": {"available": st.guide.llm_available(), "vision": st.guide.vision_available(),
+                    "model": st.llm_model, "backend": st.llm_backend,
+                    "embedded": st.llm_cfg.embedded_model,
+                    "host": st.llm_cfg.ollama_url, "error": ""},
         });
         drop(st);
         return json_response(r, 200, &out.to_string());
@@ -301,7 +521,8 @@ fn route(
             let p = st.tts_cache.join(name);
             drop(st);
             if let Ok(data) = fs::read(p) {
-                return write_response(r.get_mut(), 200, "OK", "audio/wav", &data, "");
+                let ct = if data.starts_with(b"RIFF") { "audio/wav" } else { "audio/mpeg" };
+                return write_response(r.get_mut(), 200, "OK", ct, &data, "");
             }
         }
         return json_response(r, 404, &json!({"error": "not found"}).to_string());
@@ -358,6 +579,15 @@ fn handle_ask(
         .map(str::to_string);
     let session = v["session"].as_str().map(str::to_string);
     let deep = v["deep"].as_bool().unwrap_or(false);
+    // 前端把压缩后的图片 base64 放在 images 里（迁移前 Python 版即此协议）。
+    let images: Vec<String> = v["images"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
 
     if text.chars().count() > TEXT_MAX {
         return json_response(
@@ -366,21 +596,30 @@ fn handle_ask(
             &json!({"error": format!("问题过长（上限 {TEXT_MAX} 字）")}).to_string(),
         );
     }
+    if images.len() > IMAGE_COUNT_MAX || images.iter().any(|s| s.len() > IMAGE_CHARS_MAX) {
+        return json_response(
+            r,
+            413,
+            &json!({"error": format!("图片过多或过大（最多 {IMAGE_COUNT_MAX} 张）")}).to_string(),
+        );
+    }
 
     // 只在取限流/计数器/共享句柄时短暂持锁；LLM 生成与语音合成全程无锁，
     // 否则一次慢提问会把 stats 轮询、静态资源、其他请求全部卡在锁上，
     // 用户看到的就是「整个界面跟着一起卡」。
-    let (guide, tts, piper, tts_cache, wait) = {
+    let (guide, tts, piper, edge, winrt, tts_cache, wait) = {
         let mut st = state.lock().unwrap();
         let wait = st.rate_check(rate_key);
         if wait.is_some() {
-            (None, None, None, None, wait)
+            (None, None, None, None, None, None, wait)
         } else {
             st.requests += 1;
             (
                 Some(Arc::clone(&st.guide)),
                 Some(Arc::clone(&st.tts)),
                 Some(Arc::clone(&st.piper)),
+                Some(Arc::clone(&st.edge)),
+                st.winrt.clone(),
                 Some(st.tts_cache.clone()),
                 None,
             )
@@ -401,16 +640,47 @@ fn handle_ask(
     let Some(guide) = guide else { return };
     let Some(tts) = tts else { return };
     let Some(piper) = piper else { return };
+    let Some(edge) = edge else { return };
     let Some(tts_cache) = tts_cache else { return };
 
-    let answer = guide.answer(&text, exhibit.as_deref(), deep, session.as_deref());
-    if answer.action == "chat" && ollama_up() {
+    // 联网实时信息（天气 / 新闻 / 比分）：命中意图且取数成功时直接成句返回，
+    // 不走大模型——这些数字不需要创作，模板更稳也不会编。取数失败（断网、
+    // 接口改版、无 curl）静默落回下面原有链路，由知识库/模型照旧说「查不到」。
+    if images.is_empty() {
+        if let Some(reply) = crate::online::answer(&text) {
+            let (wav, duration, visemes) =
+                synthesize(&piper, &tts, &tts_cache, Some(&*edge), winrt.as_deref(), &reply);
+            let name = format!("{}.wav", tts_key(&reply));
+            let (audio_name, audio) = audio_payload(&tts_cache, &name, &wav);
+            let out = json!({
+                "reply": reply,
+                "action": "chat",
+                "emotion": "happy",
+                "gesture": "idle",
+                "exhibit": exhibit,
+                "audio": audio,
+                "audio_name": audio_name,
+                "duration": duration,
+                "visemes": visemes,
+                "elapsed_ms": started.elapsed().as_millis() as u64,
+            });
+            return json_response(r, 200, &out.to_string());
+        }
+    }
+
+    let answer = guide.answer_with_images(
+        &text,
+        exhibit.as_deref(),
+        deep,
+        session.as_deref(),
+        &images,
+    );
+    if answer.action == "chat" && guide.llm_available() {
         state.lock().unwrap().llm_requests += 1;
     }
-    let (wav, duration, visemes) = synthesize(&piper, &tts, &tts_cache, &answer.reply);
+    let (wav, duration, visemes) = synthesize(&piper, &tts, &tts_cache, Some(&*edge), winrt.as_deref(), &answer.reply);
     let name = format!("{}.wav", tts_key(&answer.reply));
-    let audio_name = if wav.len() > INLINE_AUDIO_LIMIT { name.clone() } else { String::new() };
-    let audio = if audio_name.is_empty() { b64(&wav) } else { String::new() };
+    let (audio_name, audio) = audio_payload(&tts_cache, &name, &wav);
 
     let out = json!({
         "reply": answer.reply,
@@ -449,44 +719,125 @@ fn list_themes(state: &Arc<Mutex<AppState>>) -> Value {
 
 // ───────────────────────── 语音（无 Python） ─────────────────────────
 
-fn tts_key(text: &str) -> String {
+pub(crate) fn tts_key(text: &str) -> String {
     // v8：讲解员换成 Q 版吉祥物，配套语音改为标准普通话卡通活泼女声
     // （zh-CN-XiaoyiNeural）。音色变化必须升版本让旧缓存失效，否则现场会
     // 继续命中 v7 的成熟播报女声，换了模型却听不出变化。
     format!("{:016x}", fnv1a(&format!("v8{text}")))
 }
 
+/// 决定音频走内联 base64 还是 `/api/audio/<name>` 文件。
+/// 严格离线模式的静音刻意不落盘（联网恢复后要重新合成为小伊），此时必须内联，
+/// 否则 `audio_name` 会指向一个不存在的文件，前端请求得到 404。
+fn audio_payload(tts_cache: &Path, name: &str, wav: &[u8]) -> (String, String) {
+    let on_disk = tts_cache.join(name).is_file();
+    if on_disk && wav.len() > INLINE_AUDIO_LIMIT {
+        (name.to_string(), String::new())
+    } else {
+        (String::new(), b64(wav))
+    }
+}
+
 /// 最近一次神经语音合成的实时率（合成耗时 / 音频时长，越小越快），
 /// 以百分之一为单位存整型，供 /api/stats 展示「TTS 实时率」。
 static TTS_RTF_X100: AtomicU64 = AtomicU64::new(0);
 
-/// 优先磁盘缓存；未命中按三级合成：Piper 神经语音（首选）→ 常驻系统语音进程
-/// → 一次性 PowerShell；系统语音彻底不可用时写入同长度静音 wav，保证前端
-/// decodeAudioData 不失败、不弹「语音合成失败」，字幕/口型/镜头照常工作。
+/// `QX_TTS_OFFLINE_STRICT=1`：断网且缓存未命中时，宁可只显示文字也不换发音人。
+/// 默认关闭，保持旧行为（本地 Piper 仍有声音）。比赛现场建议开启。
+fn offline_strict_enabled() -> bool {
+    matches!(
+        std::env::var("QX_TTS_OFFLINE_STRICT")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "on" | "true" | "yes"
+    )
+}
+
+/// 纯函数：只有「开启严格模式」且「在线小伊确实不可用」时才禁止回退。
+/// `edge_offline = None` 表示根本没有在线客户端，按不可用处理。
+/// 在线合成临时失败也会进入冷却期，此时同样视为不可用。
+fn keep_xiaoyi_only(strict: bool, edge_offline: Option<bool>) -> bool {
+    strict && edge_offline.unwrap_or(true)
+}
+
+/// 磁盘上已有的离线语音条数，供 /api/stats 核对赛前烘焙覆盖率。
+fn cache_audio_count(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| is_audio_name(&e.file_name().to_string_lossy()))
+        .count()
+}
+
+/// 优先磁盘缓存；未命中按四级合成：在线小伊（保持音色统一）→ Piper 神经语音
+/// → 常驻系统语音进程 → 一次性 PowerShell；彻底不可用时写入同长度静音 wav，
+/// 保证前端 decodeAudioData 不失败、不弹「语音合成失败」，字幕/口型/镜头照常工作。
+///
+/// 在线合成的结果是 mp3（Edge 端点只给 48 kbps CBR mp3），WebView2 原生可解，
+/// 因此不引入解码依赖；缓存文件名沿用 `.wav`，由 wav_duration / 音频路由按魔数区分。
+///
+/// 严格离线模式：在线小伊不可用且缓存未命中时**不落盘静音缓存**，直接返回静音
+/// 音频 + 完整文字。这样联网恢复后同一句话会重新合成为小伊，而不会被永久
+/// 缓存成静音；同时现场绝不会突然冒出华艳这个第二发音人。
 fn synthesize(
     piper: &PiperTts,
-    tts: &TtsWorker,
+    _tts: &TtsWorker,
     tts_cache: &Path,
+    edge: Option<&EdgeTts>,
+    winrt: Option<&WinrtTts>,
     text: &str,
 ) -> (Vec<u8>, f64, Vec<Value>) {
     let hex = tts_key(text);
     let name = format!("{hex}.wav");
     let path = tts_cache.join(&name);
+    let mut inline: Option<Vec<u8>> = None;
     if !path.exists() {
-        let t0 = Instant::now();
-        if let Some(wav) = piper.synth(text) {
-            let _ = fs::write(&path, &wav);
-            let dur = wav_duration(&wav);
-            if dur > 0.2 {
-                let rtf = (t0.elapsed().as_secs_f64() / dur * 100.0) as u64;
-                TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
+        // ① 运行时在线小伊：与预置讲解词同一发音人。结果立刻落盘，
+        //    同一句话第二次秒播、之后即使断网也仍命中缓存。
+        let edge_ok = edge
+            .and_then(|e| e.synth(text))
+            .map(|bytes| fs::write(&path, &bytes).is_ok())
+            .unwrap_or(false);
+        if !edge_ok {
+            // ② 离线小伊：WinRT OneCore 自然语音（XiaoyiNeural，与在线小伊同源）。
+            //    它就是小伊音色，所以 strict 与否都用——这正是「断网也是小伊声音」。
+            let winrt_ok = winrt
+                .and_then(|w| w.synth(text))
+                .map(|wav| fs::write(&path, &wav).is_ok())
+                .unwrap_or(false);
+            if !winrt_ok {
+                let strict = keep_xiaoyi_only(
+                    offline_strict_enabled(),
+                    edge.map(|e| e.is_offline()),
+                );
+                if strict {
+                    // 离线小伊不可用且严格模式：连 Piper 都不用，只显示文字。
+                    let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
+                    inline = Some(silent_wav(dur));
+                } else {
+                    let t0 = Instant::now();
+                    if let Some(wav) = piper.synth(text) {
+                        let _ = fs::write(&path, &wav);
+                        let dur = wav_duration(&wav);
+                        if dur > 0.2 {
+                            let rtf = (t0.elapsed().as_secs_f64() / dur * 100.0) as u64;
+                            TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
+                        }
+                    } else {
+                        // 离线小伊与 Piper 都不可用：宁可只显示文字，也绝不回退到
+                        // System.Speech 的华艳机械音（那正是「声音突然变了」的元凶）。
+                        // 不落盘静音缓存，联网恢复后同一句话会重新合成为小伊。
+                        let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
+                        inline = Some(silent_wav(dur));
+                    }
+                }
             }
-        } else if !tts.synth(&hex, text) && !synth_system(text, &path) {
-            let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
-            let _ = fs::write(&path, silent_wav(dur));
         }
     }
-    let wav = fs::read(&path).unwrap_or_else(|_| silent_wav(1.5));
+    let wav = inline.unwrap_or_else(|| fs::read(&path).unwrap_or_else(|_| silent_wav(1.5)));
     let duration = wav_duration(&wav);
     let dur = if duration > 0.1 { duration } else { 1.5 };
     (wav, (dur * 100.0).round() / 100.0, visemes_for(text, dur))
@@ -622,6 +973,8 @@ impl TtsWorker {
     }
 
     /// 合成 `<hex>.txt`（UTF-8 正文）→ `<hex>.wav`；成功返回 true。
+    /// 华艳（System.Speech）已从合成链路移除，此方法保留仅为诊断自检用。
+    #[allow(dead_code)]
     pub fn synth(&self, hex: &str, text: &str) -> bool {
         let txt = self.cache_dir.join(format!("{hex}.txt"));
         if fs::write(&txt, text).is_err() {
@@ -637,28 +990,6 @@ impl TtsWorker {
                 .map(|m| m.len() > 44)
                 .unwrap_or(false)
     }
-}
-
-#[cfg(windows)]
-fn synth_system(text: &str, out: &Path) -> bool {
-    use std::os::windows::process::CommandExt;
-    let q = |s: &str| s.replace('\'', "''");
-    let script = format!(
-        "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Rate = 3; $s.SetOutputToWaveFile('{}'); $s.Speak('{}'); $s.Dispose();",
-        q(&out.to_string_lossy()),
-        q(text)
-    );
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .output()
-        .map(|o| o.status.success() && out.exists() && fs::metadata(out).map(|m| m.len() > 44).unwrap_or(false))
-        .unwrap_or(false)
-}
-
-#[cfg(not(windows))]
-fn synth_system(_: &str, _: &Path) -> bool {
-    false
 }
 
 fn visemes_for(text: &str, dur: f64) -> Vec<Value> {
@@ -698,8 +1029,16 @@ fn silent_wav(dur: f64) -> Vec<u8> {
 }
 
 fn wav_duration(w: &[u8]) -> f64 {
-    if w.len() < 44 || &w[0..4] != b"RIFF" {
-        return 0.0;
+    if !(w.len() >= 44 && &w[0..4] == b"RIFF") {
+        // Edge TTS 只输出 audio-24khz-48kbitrate-mono-mp3（CBR 48 kbps）。
+        // 按固定码率估算时长即可驱动字幕/口型，前端 decodeAudioData 会自行解码。
+        return if w.len() > 1024
+            && (w.starts_with(b"ID3") || (w[0] == 0xff && (w[1] & 0xe0) == 0xe0))
+        {
+            (w.len() as f64 * 8.0 / 48_000.0).max(0.3)
+        } else {
+            0.0
+        };
     }
     // canonical WAV 的 fmt 块：offset 28 是 byteRate（每秒字节数）
     let byte_rate = u32::from_le_bytes(w[28..32].try_into().unwrap_or([0; 4]));
@@ -712,11 +1051,6 @@ fn wav_duration(w: &[u8]) -> f64 {
         off += 8 + n + (n % 2);
     }
     0.0
-}
-
-fn ollama_up() -> bool {
-    let addr: SocketAddr = "127.0.0.1:11434".parse().unwrap();
-    TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()
 }
 
 // ───────────────────────── HTTP 基础 ─────────────────────────
@@ -855,7 +1189,7 @@ fn b64(data: &[u8]) -> String {
 
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-fn handle_ws(r: &mut BufReader<TcpStream>, key: &str) {
+fn handle_ws(r: &mut BufReader<TcpStream>, key: &str, asr: &Asr) {
     let accept = b64(&sha1(format!("{key}{WS_GUID}").as_bytes()));
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
@@ -865,16 +1199,40 @@ fn handle_ws(r: &mut BufReader<TcpStream>, key: &str) {
     }
     let _ = r.get_mut().flush();
 
+    let mut pcm: Vec<f32> = Vec::with_capacity(16_000 * 8);
+    let mut partial_secs = 0usize;
+    let mut partial_count = 0u8;
     while let Some((op, payload)) = ws_frame(r) {
         match op {
             8 => break, // close
+            2 => {
+                // 二进制帧 = Float32Array（16 kHz 单声道），前端已降采样。
+                append_pcm(&mut pcm, &payload);
+                let secs = pcm.len() / 16_000;
+                // 每多约 2 秒发一次中间结果：前端 hold-to-talk 期间能实时看到字幕，
+                // 且 stopTalk 的 3 s 超时会拿 lastPartial 兜底。同步推理约 0.7 s，
+                // 期间浏览器继续发的音频帧由 TCP 缓冲接住，读完会补齐，不会丢。
+                // 最多 4 次，避免 28 s 长录音反复阻塞读帧。
+                if asr.available() && secs >= partial_secs + 2 && partial_count < 4 {
+                    if let Some(text) = asr.transcribe(&pcm) {
+                        if !text.is_empty() {
+                            ws_text(r.get_mut(), &json!({"type": "partial", "text": text}).to_string());
+                        }
+                    }
+                    partial_secs = secs;
+                    partial_count += 1;
+                }
+            }
             1 => {
                 if payload == b"END" {
-                    ws_text(r.get_mut(), r#"{"type":"final","text":""}"#);
+                    // 用整段音频重跑一次，覆盖中间结果；不可用/静音时给空串，
+                    // 前端会退回 lastPartial 或提示用户改用文字。
+                    let text = asr.transcribe(&pcm).unwrap_or_default();
+                    ws_text(r.get_mut(), &json!({"type": "final", "text": text}).to_string());
                     break;
                 }
             }
-            _ => {} // 音频帧：ASR 推理尚未 Rust 化，忽略但保持连接
+            _ => {} // ping / pong / 其它控制帧
         }
     }
 }
@@ -984,12 +1342,94 @@ fn sha1(data: &[u8]) -> [u8; 20] {
 mod tests {
     use super::*;
 
+    /// 防止回归：LlmConfig 若用 derive(Default)，地址与模型名会变成空串，
+    /// 双击启动时 Ollama 客户端连到空地址、请求体 model 为空，所有自由问答
+    /// 静默退回兜底话术（曾导致「这个我一时答不上来」+ 识图失效）。
+    #[test]
+    fn default_llm_config_points_at_real_ollama() {
+        let cfg = LlmConfig::default();
+        let d = OllamaClient::default();
+        assert_eq!(cfg.ollama_url, d.host);
+        assert_eq!(cfg.ollama_model, "qwen3.5:4b");
+        assert!(cfg.ollama_url.contains("11434"), "默认端口必须是 11434");
+        assert!(cfg.local_model.is_none());
+
+        // 即便手工构造了空配置，展示名与客户端也必须被兜底，不能留空
+        let empty = LlmConfig {
+            backend: LlmBackend::Auto,
+            ollama_url: String::new(),
+            ollama_model: String::new(),
+            local_model: None,
+            local_mmproj: None,
+            embedded_model: false,
+            kb_prompt: String::new(),
+        };
+        assert_eq!(describe_llm(&empty).1, "qwen3.5:4b");
+        let _client = build_llm(&empty); // 不应 panic，也不应连到空地址
+    }
+
+    /// 严格离线守卫的四种组合：不能把「在线小伊可用」误判成断网而静音，
+    /// 也不能在严格模式 + 断网时放行华艳（那正是用户报的音色突变）。
+    #[test]
+    fn strict_guard_only_blocks_fallback_when_xiaoyi_is_unavailable() {
+        assert!(keep_xiaoyi_only(true, Some(true)), "严格 + 断网必须禁止回退");
+        assert!(keep_xiaoyi_only(true, None), "无在线客户端按断网处理");
+        assert!(!keep_xiaoyi_only(true, Some(false)), "在线小伊可用时不应静音");
+        assert!(!keep_xiaoyi_only(false, Some(true)), "未开严格模式保持有声回退");
+        assert!(!keep_xiaoyi_only(false, None));
+    }
+
+    /// /api/stats 的覆盖率数字必须只数合法的缓存音频文件，不能把 .txt / 报告
+    /// 之类的杂项算进去，否则会虚报「离线语音已备齐」。
+    #[test]
+    fn cache_audio_count_only_counts_valid_cache_names() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("qx-cache-count-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(&dir).expect("创建测试临时目录");
+        for n in ["0e5bbf57873c8703.wav", "ABCDEF0123456789.wav", "notes.txt", "short.wav"] {
+            fs::write(dir.join(n), b"RIFF").unwrap();
+        }
+        assert_eq!(cache_audio_count(&dir), 2);
+        assert_eq!(cache_audio_count(&dir.join("definitely-missing")), 0);
+        fs::remove_dir_all(&dir).expect("清理测试临时目录");
+    }
+
+    /// 严格离线模式的静音刻意不落盘；若仍按大小返回 audio_name，
+    /// 前端请求 /api/audio/ 就是 404。这是端到端实测抓到的缺陷。
+    #[test]
+    fn audio_payload_never_points_at_a_missing_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("qx-audio-payload-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(&dir).expect("创建测试临时目录");
+        let name = "0123456789abcdef.wav";
+        let big = vec![0u8; INLINE_AUDIO_LIMIT + 1];
+        let (n, a) = audio_payload(&dir, name, &big);
+        assert!(n.is_empty(), "缓存文件不存在时必须内联音频");
+        assert!(!a.is_empty());
+        fs::write(dir.join(name), b"RIFF").unwrap();
+        let (n2, a2) = audio_payload(&dir, name, &big);
+        assert_eq!(n2, name, "已落盘的大音频走文件路由");
+        assert!(a2.is_empty());
+        let (n3, a3) = audio_payload(&dir, name, b"RIFF");
+        assert!(n3.is_empty(), "小音频保持内联");
+        assert!(!a3.is_empty());
+        fs::remove_dir_all(&dir).expect("清理测试临时目录");
+    }
+
     /// 端到端冒烟：Piper 神经语音预热 → 问答 → 合成 → 校验 wav 与缓存。
     /// 顺带把 v8 键的 KB 语音预热进 tts-cache，正式运行首次提问即命中缓存。
     #[test]
     fn tts_worker_ask_and_synth_smoke() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../");
-        let state = Arc::new(Mutex::new(AppState::new(root, "qiaoxiang").expect("AppState")));
+        let state = Arc::new(Mutex::new(
+            AppState::new(root, "qiaoxiang", LlmConfig::default()).expect("AppState"),
+        ));
         let (piper, tts, tts_cache, guide) = {
             let st = state.lock().unwrap();
             (
@@ -1007,7 +1447,7 @@ mod tests {
         println!("reply({}字): {}", answer.reply.chars().count(), answer.reply);
 
         let hex = tts_key(&answer.reply);
-        let (wav, dur, visemes) = synthesize(&piper, &tts, &tts_cache, &answer.reply);
+        let (wav, dur, visemes) = synthesize(&piper, &tts, &tts_cache, None, None, &answer.reply);
         assert!(wav.len() > 44, "合成产物应是有效 wav");
         assert!(dur > 0.5, "时长应来自真实 wav 帧数，实测 {dur}s");
         assert!(!visemes.is_empty(), "口型轨道应与文本等长");
@@ -1019,7 +1459,7 @@ mod tests {
         assert!(rate > 3.5, "语速应接近真人讲解（>3.5 字/秒），实测 {rate:.1}");
 
         // 二次合成同文本：直接命中磁盘缓存
-        let (wav2, dur2, _) = synthesize(&piper, &tts, &tts_cache, &answer.reply);
+        let (wav2, dur2, _) = synthesize(&piper, &tts, &tts_cache, None, None, &answer.reply);
         assert_eq!(wav.len(), wav2.len());
         assert!((dur - dur2).abs() < 1e-9);
     }

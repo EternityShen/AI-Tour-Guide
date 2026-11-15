@@ -1,0 +1,101 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#F5F1E8', padding: '24px 72px', flexDirection: 'column' }}>
+    <Box style={{ height: 104, flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        <Box style={{ width: 3, height: 34, background: '#A8402F' }} />
+        <Box style={{ flexDirection: 'column' }}>
+            <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                换一份主题包，就是一座新展厅
+            </Text>
+            <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.5, marginTop: 8, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                下面是这份主题包真实的字段结构，改完存盘就生效
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 508, flexDirection: 'row', gap: 40 }}>
+        <Box style={{ width: 340, background: '#2B4A45', padding: '34px 30px', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.55, letterSpacing: 3, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                复制方式
+            </Text>
+            <Text style={{ fontSize: 25, color: '#F5F1E8', lineHeight: 1.6, fontFamily: "'Source Han Serif SC', 'SimSun', serif", fontWeight: 'bold' }}>
+                展项、讲稿、
+                <br />
+                问答、动线，
+                <br />
+                全在主题包里。
+            </Text>
+            <Box style={{ width: 88, height: 3, background: '#A8402F' }} />
+            <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.68, lineHeight: 1.75, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                程序本体一行不用改。3D 模型可以放 glb，也可以像陈皮、小鸟天堂那样用程序化展台顶上。
+            </Text>
+        </Box>
+
+        <Box style={{ flex: 1, flexDirection: 'column', gap: 20 }}>
+            <Box style={{ background: '#1F2A2E', padding: '22px 26px', flexDirection: 'column', gap: 4 }}>
+                <Text style={{ fontSize: 13, color: '#D87A63', letterSpacing: 1, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    themes/qiaoxiang/theme.json
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.88, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    exhibits[]    展项：name · brief · script · deep · faq×3
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.55, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    　　　　　　　model(.glb) · pos · aliases · keywords
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.88, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    quiz[]        12 道互动题：题干 · 三选项 · 答案 · 对错话术
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.88, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    chitchat[]    6 组问候与自我介绍
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.88, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    route         一段游览动线串词
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.88, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    assistant     讲解员名字「小侨」
+                </Text>
+                <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.55, lineHeight: 2.0, fontFamily: "'Consolas', 'Courier New', monospace" }}>
+                    palette       配色 · realtime 拒答话术 · 展项表情手势
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'row', gap: 16 }}>
+                <Box style={{ flex: 1, borderTop: '2px solid #2B4A45', paddingTop: 12 }}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                        故居 · 纪念馆
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.62, lineHeight: 1.7, marginTop: 6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        换人物、年份、事件，动线重排一次。
+                    </Text>
+                </Box>
+                <Box style={{ flex: 1, borderTop: '2px solid #2B4A45', paddingTop: 12 }}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                        校史馆
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.62, lineHeight: 1.7, marginTop: 6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        同一套结构录校友与大事记。
+                    </Text>
+                </Box>
+                <Box style={{ flex: 1, borderTop: '2px solid #2B4A45', paddingTop: 12 }}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                        县级展馆
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.62, lineHeight: 1.7, marginTop: 6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        一台笔记本离线就能摆进去。
+                    </Text>
+                </Box>
+            </Box>
+
+            <Text style={{ fontSize: 16, color: '#A8402F', fontWeight: 'bold', lineHeight: 1.6, fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                今天交付的是江门；明天可以是任何一座有故事的城。
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡 · 江门 AI 智能讲解员
+        </Text>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            12 / 14
+        </Text>
+    </Box>
+</Slide>

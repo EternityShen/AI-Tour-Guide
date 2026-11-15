@@ -21,7 +21,11 @@ desktop/target/
 rust-rewrite/target/
 rust-rewrite/tts-cache/
 /QiaoxiangGuide.exe
+/QiaoxiangGuide-Local.exe
+/QiaoxiangGuide.exe.bak-*
+/QiaoxiangGuide-Local.exe.bak-*
 /QiaoxiangGuide.exe.WebView2/
+/QiaoxiangGuide-Local.exe.WebView2/
 
 # Diagnostics / throwaway verification artifacts (not part of the source)
 .diag/
@@ -51,6 +55,12 @@ models/*.gguf
 models/*.onnx.data
 server/models/
 tools/cloudflared.exe
+# Local embedded VL model + optional large ASR model (built into exe, not source)
+rust-rewrite/models/
+rust-rewrite/asr/ggml-small-q5_1.bin
+
+# slidep tool logs (throwaway)
+.slidep/
 
 # Logs
 *.log
@@ -65,6 +75,7 @@ server_err.log
 # Audio cache (generated at runtime)
 server/audio_cache/
 server/cache/
+rust-rewrite/voice_bake_report.txt
 
 # Runtime-generated public tunnel URL
 PUBLIC-URL.txt

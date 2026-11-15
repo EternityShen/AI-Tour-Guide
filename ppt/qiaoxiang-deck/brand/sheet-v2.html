@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --ink:#1F2A2E; --paper:#F5F1E8; --seal:#A8402F;
+    --line:rgba(31,42,46,.14); --mute:rgba(31,42,46,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    width:1600px; background:var(--paper); color:var(--ink);
+    font-family:"Microsoft YaHei","Source Han Sans SC",sans-serif;
+    padding:52px 64px 56px;
+  }
+  .eyebrow{
+    font-size:15px; letter-spacing:5px; color:var(--seal); font-weight:600;
+    display:flex; align-items:center; gap:14px; margin-bottom:16px;
+  }
+  .eyebrow::after{content:""; flex:1; height:1px; background:var(--line);}
+  h1{
+    font-family:"Source Han Serif SC","SimSun",serif;
+    font-size:52px; font-weight:700; letter-spacing:1px; line-height:1.18;
+  }
+  h1 em{font-style:normal; color:var(--seal)}
+  .sub{margin-top:14px; font-size:19px; line-height:1.7; color:var(--mute); max-width:1180px}
+
+  .compare{display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:44px}
+  .card{border:1px solid var(--line); background:rgba(255,255,255,.45); padding:30px 32px 32px}
+  .card h2{font-size:23px; font-weight:700; letter-spacing:1px; display:flex; align-items:baseline; gap:12px}
+  .tag{font-size:12px; letter-spacing:2px; padding:4px 9px; border:1px solid currentColor; font-weight:600}
+  .old .tag{color:var(--mute)}
+  .new .tag{color:var(--seal)}
+  .card h2 span{font-weight:400; font-size:16px; color:var(--mute); letter-spacing:0}
+
+  .row{display:flex; gap:26px; margin-top:26px; align-items:flex-start}
+  .shot{flex:0 0 148px}
+  .shot img{width:148px; height:148px; display:block}
+  .old .shot img{filter:grayscale(1); opacity:.42}
+
+  ol{margin:0; padding-left:0; list-style:none; flex:1}
+  ol li{
+    font-size:15.5px; line-height:1.62; padding-left:26px; position:relative; margin-bottom:14px;
+  }
+  ol li::before{
+    position:absolute; left:0; top:1px; font-size:12px; font-weight:700;
+  }
+  .old ol li::before{content:"×"; color:var(--mute)}
+  .new ol li::before{content:"✓"; color:var(--seal)}
+  ol li b{font-weight:700}
+  ol li i{font-style:normal; color:var(--mute)}
+
+  .anatomy{margin-top:46px; border-top:1px solid var(--line); padding-top:34px}
+  .anatomy h3{font-size:19px; letter-spacing:2px; font-weight:700; margin-bottom:8px}
+  .anatomy .hint{font-size:14.5px; color:var(--mute); margin-bottom:26px}
+  .parts{display:grid; grid-template-columns:repeat(3,1fr); gap:34px}
+  .part{display:flex; gap:20px; align-items:flex-start}
+  .part .n{
+    flex:0 0 34px; height:34px; border-radius:50%; background:var(--ink); color:var(--paper);
+    font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:center;
+  }
+  .part h4{font-size:17px; font-weight:700; margin-bottom:7px; letter-spacing:.5px}
+  .part p{font-size:14.5px; line-height:1.65; color:var(--mute)}
+  .part p b{color:var(--ink); font-weight:700}
+
+  .apps{margin-top:46px; border-top:1px solid var(--line); padding-top:34px}
+  .apps h3{font-size:19px; letter-spacing:2px; font-weight:700; margin-bottom:26px}
+  .app-grid{display:grid; grid-template-columns:168px 168px 168px 168px 1fr; gap:30px; align-items:end}
+  .app figcaption{font-size:13px; color:var(--mute); margin-top:12px; letter-spacing:.5px}
+  .app img{display:block; width:168px; height:168px}
+  .app.dark img{background:var(--ink)}
+  .app.paper img{background:var(--paper)}
+  .sizes{display:flex; align-items:flex-end; gap:16px; height:168px; padding-bottom:8px}
+  .sizes img{display:block; width:auto !important; height:auto !important}
+  .foot{margin-top:40px; font-size:13.5px; color:var(--mute); letter-spacing:.5px}
+  .apps .hint{font-size:14.5px; color:var(--mute); margin:-14px 0 24px}
+  .land{display:grid; grid-template-columns:1fr 1fr; gap:34px}
+  .land figure{display:flex; flex-direction:column}
+  .land figcaption{font-size:13.5px; color:var(--mute); margin-top:13px; line-height:1.6}
+  .land figcaption b{color:var(--ink); font-weight:700}
+  .land-shot{grid-column:1 / -1}
+  .land-shot img{display:block; width:860px; border:1px solid var(--line)}
+  .row-icons{display:flex; align-items:flex-end; gap:18px; height:78px; padding-bottom:2px}
+  .row-icons img{display:block}
+  .ppt-pair{display:flex; gap:16px}
+  .ppt-mini{width:158px; height:88px; position:relative; border:1px solid rgba(245,241,232,.12)}
+  .ppt-mini.dark-a{background:#141C1F}
+  .ppt-mini.dark-b{background:#1F2A2E}
+  .ppt-mini img{position:absolute; top:9px; left:11px; width:26px; height:26px}
+  .ppt-mini i,.ppt-mini b{position:absolute; left:11px; background:rgba(245,241,232,.5); border-radius:1px}
+  .ppt-mini i{top:52px; width:74px; height:7px; background:rgba(245,241,232,.72)}
+  .ppt-mini b{top:66px; width:52px; height:4px; background:rgba(245,241,232,.3)}
+  .ppt-mini span{position:absolute; bottom:7px; right:9px; font-size:11px; color:rgba(245,241,232,.42); letter-spacing:1px}
+  .foot{margin-top:40px; font-size:13.5px; color:var(--mute); letter-spacing:.5px}
+</style>
+</head>
+<body>
+
+<div class="eyebrow">标志修订 · v2</div>
+<h1>从一封信，到<em>一座会开口的楼</em></h1>
+<p class="sub">
+  旧标用「侨批信封 + 声波」拼出两个符号，各说各话；新标只用一个形——碉楼的塔身、顶檐、拱门，本身就是江门，也本身就在说话。
+</p>
+
+<div class="compare">
+
+  <div class="card old">
+    <h2><span class="tag">V1 · 弃用</span> 侨批信封 <span>两个符号拼接</span></h2>
+    <div class="row">
+      <div class="shot"><img src="png-v1/icon-512.png" alt="旧标志"></div>
+      <ol>
+        <li><b>覆盖不全。</b><i>信封只对应六个展项里的「侨批银信」一项，碉楼、赤坎、启超故居、陈皮、小鸟天堂都不在里面。</i></li>
+        <li><b>语义走偏。</b><i>信封在通用图标库里就是「邮件」，评委第一眼会读成邮箱 App，而不是展厅讲解员。</i></li>
+        <li><b>没有因果。</b><i>声波贴在信封顶上，说不清「信为什么会发声」，两个形只是叠在一起。</i></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card new">
+    <h2><span class="tag">V2 · 采用</span> 碉楼开声 <span>一个形，两重读法</span></h2>
+    <div class="row">
+      <div class="shot"><img src="png/icon-512.png" alt="新标志"></div>
+      <ol>
+        <li><b>塔身 = 开平碉楼。</b><i>江门唯一的世界文化遗产，也是六展项之首、答辩封面图。全国观众一眼认出「这是侨乡」。</i></li>
+        <li><b>顶檐五条 = 柱廊 / 声波。</b><i>碉楼顶层本就是一圈柱廊；同一排竖条换成朱砂、高低起伏，就成了声波。楼在开口讲。</i></li>
+        <li><b>拱门 = 展厅入口。</b><i>塔基唯一的开口，观众由此走进去听讲；镂空透底，任何底色上都成立。</i></li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+<div class="anatomy">
+  <h3>图形拆解</h3>
+  <p class="hint">三个构件全部来自碉楼本身，没有一个是外挂上去的装饰。</p>
+  <div class="parts">
+    <div class="part">
+      <div class="n">1</div>
+      <div>
+        <h4>塔身：瘦高直筒 + 顶部挑檐</h4>
+        <p>比例 1 : 1.9，顶部外挑 18px。<b>这一圈挑出的线脚是碉楼最好认的轮廓</b>，方盒子一旦加上它，就从楼房变成了碉楼。</p>
+      </div>
+    </div>
+    <div class="part">
+      <div class="n">2</div>
+      <div>
+        <h4>顶条：柱廊即声波</h4>
+        <p>五条等距竖条，中间高、两侧低。读建筑是<b>顶层柱廊</b>，读功能是<b>发声波形</b>——不靠加一个喇叭来表达「会讲」。</p>
+      </div>
+    </div>
+    <div class="part">
+      <div class="n">3</div>
+      <div>
+        <h4>门窗：窄高窗 + 拱门</h4>
+        <p>两列三排窄窗是碉楼的防御性开窗；<b>底部拱门是唯一入口</b>，正对「走进展厅、开始听讲」这个动作。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="apps">
+  <h3>应用形态</h3>
+  <div class="app-grid">
+    <figure class="app dark"><img src="png/icon-256.png" alt="方形图标"><figcaption>方形图标 · 深底</figcaption></figure>
+    <figure class="app paper"><img src="png/mark-256.png" alt="图形标 浅底"><figcaption>图形标 · 宣纸米底</figcaption></figure>
+    <figure class="app dark"><img src="png/mark-dark-256.png" alt="图形标 反白"><figcaption>图形标 · 碉楼青底</figcaption></figure>
+    <figure class="app"><img src="png/seal-512.png" alt="印章"><figcaption>朱砂印章</figcaption></figure>
+    <figure class="app">
+      <div class="sizes">
+        <img src="png/icon-48.png" style="width:48px" alt="48">
+        <img src="png/icon-32.png" style="width:32px" alt="32">
+        <img src="png/icon-small-24.png" style="width:24px" alt="24">
+        <img src="png/icon-small-16.png" style="width:16px" alt="16">
+      </div>
+      <figcaption>16 / 24 / 32 / 48 像素</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="apps">
+  <h3>已经放进去的位置</h3>
+  <p class="hint">三处落地：软件界面左上角、exe 文件与窗口图标、答辩 PPT 首尾页。</p>
+  <div class="land">
+    <figure class="land-shot">
+      <img src="ui-check/ui-brand-crisp.png" alt="界面左上角">
+      <figcaption><b>01　软件界面左上角</b>　54px，与「侨乡 · 江门」字标并排，左侧竖线贯穿整块</figcaption>
+    </figure>
+    <figure class="land-icons">
+      <div class="row-icons">
+        <img src="png/icon-256.png" style="width:72px" alt="">
+        <img src="png/icon-48.png" style="width:48px" alt="">
+        <img src="png/icon-32.png" style="width:32px" alt="">
+        <img src="png/icon-small-24.png" style="width:24px" alt="">
+        <img src="png/icon-small-16.png" style="width:16px" alt="">
+      </div>
+      <figcaption><b>02　exe 文件 / 窗口 / 任务栏</b>　七档尺寸全部编译进 exe 资源（16→256）</figcaption>
+    </figure>
+    <figure class="land-ppt">
+      <div class="ppt-pair">
+        <div class="ppt-mini dark-a"><img src="png/mark-dark-256.png" alt=""><i></i><b></b><span>封面 01</span></div>
+        <div class="ppt-mini dark-b"><img src="png/mark-dark-256.png" alt=""><i></i><b></b><span>尾页 13</span></div>
+      </div>
+      <figcaption><b>03　答辩 PPT 首尾页</b>　64px，距左 92 / 距顶 44，与正文栏线对齐</figcaption>
+    </figure>
+  </div>
+</div>
+
+<p class="foot">配色沿用 v1：碉楼青 #1F2A2E ／ 宣纸米 #F5F1E8 ／ 侨批朱砂 #A8402F。字体：思源宋体 + 思源黑体。</p>
+
+</body>
+</html>

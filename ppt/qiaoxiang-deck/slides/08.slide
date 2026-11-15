@@ -1,0 +1,73 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#141C1F', position: 'relative', overflow: 'hidden' }}>
+    <Image src='assets/ui_demo.png' style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, objectFit: 'cover' }} />
+    <Box style={{ position: 'absolute', top: 480, left: 0, width: 1280, height: 240, background: 'linear-gradient(to top, rgba(12,18,20,0.97) 0%, rgba(12,18,20,0.92) 55%, rgba(12,18,20,0) 100%)' }} />
+
+    <Box style={{ position: 'absolute', top: 512, left: 92, width: 1000 }}>
+        <Text style={{ fontSize: 22, color: '#F5F1E8', fontWeight: 'bold', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+            演示模式里已经写好了六步，每步带倒计时
+        </Text>
+        <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.6, marginTop: 8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            点「下一步」照着走，不用背顺序 —— 上面的截图就是第一步的实际画面
+        </Text>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 578, left: 92, width: 1130, flexDirection: 'row', gap: 10 }}>
+        <Box style={{ width: 180, background: 'rgba(168,64,47,0.22)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#D87A63', letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 1 · 30 秒
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                说明问题
+            </Text>
+        </Box>
+        <Box style={{ width: 180, background: 'rgba(245,241,232,0.08)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.55, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 2
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                操作演示
+            </Text>
+        </Box>
+        <Box style={{ width: 180, background: 'rgba(245,241,232,0.08)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.55, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 3
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                技术亮点
+            </Text>
+        </Box>
+        <Box style={{ width: 180, background: 'rgba(245,241,232,0.08)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.55, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 4
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                应用价值
+            </Text>
+        </Box>
+        <Box style={{ width: 180, background: 'rgba(245,241,232,0.08)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.55, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 5
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                团队与应急
+            </Text>
+        </Box>
+        <Box style={{ width: 180, background: 'rgba(245,241,232,0.08)', padding: '10px 12px', flexDirection: 'column' }}>
+            <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.55, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                STEP 6
+            </Text>
+            <Text style={{ fontSize: 15, color: '#F5F1E8', marginTop: 6, fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                合规说明
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 682, left: 92, width: 1130, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.5, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            第二步里还写了被打断怎么办：点「停止播报」，问答记录会留一条「已取消」，不装作没发生
+        </Text>
+        <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            08 / 14
+        </Text>
+    </Box>
+</Slide>

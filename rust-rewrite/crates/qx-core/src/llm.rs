@@ -13,14 +13,23 @@ use std::time::Duration;
 pub struct Message {
     pub role: String,
     pub content: String,
+    /// 随消息附带的图片 base64（不含 `data:` 前缀）。Ollama `/api/chat` 原生支持
+    /// 该字段，qwen3.5:4b 自带视觉投影器，可直接看图。空数组不序列化，纯文本
+    /// 请求体与迁移前完全一致。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: "system".into(), content: content.into() }
+        Self { role: "system".into(), content: content.into(), images: Vec::new() }
     }
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: "user".into(), content: content.into() }
+        Self { role: "user".into(), content: content.into(), images: Vec::new() }
+    }
+    pub fn with_images(mut self, images: Vec<String>) -> Self {
+        self.images = images;
+        self
     }
 }
 
@@ -34,6 +43,11 @@ pub trait LlmClient: Send + Sync {
     fn available(&self) -> bool {
         true
     }
+    /// 是否具备视觉输入能力。Ollama 的 qwen3.5:4b 带视觉投影器，默认 true；
+    /// 纯文本 GGUF 与占位实现应覆盖为 false，让上层给出明确的降级话术。
+    fn supports_vision(&self) -> bool {
+        true
+    }
 }
 
 /// 无大模型时的占位实现：断网/Ollama 未安装也能完整演示知识库（对齐原项目降级设计）。
@@ -44,6 +58,9 @@ impl LlmClient for NoLlm {
         Err("LLM 未配置".into())
     }
     fn available(&self) -> bool {
+        false
+    }
+    fn supports_vision(&self) -> bool {
         false
     }
 }

@@ -1,0 +1,119 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#F5F1E8', padding: '24px 72px', flexDirection: 'column' }}>
+    <Box style={{ height: 104, flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        <Box style={{ width: 3, height: 34, background: '#A8402F' }} />
+        <Box style={{ flexDirection: 'column' }}>
+            <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                能做什么，现在还做不到什么
+            </Text>
+            <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.5, marginTop: 8, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                右边这一栏，评委一问就会碰到的
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 508, flexDirection: 'row', gap: 36 }}>
+        <Box style={{ width: 550, flexDirection: 'column' }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 10, height: 40 }}>
+                <Box style={{ width: 10, height: 10, background: '#2B4A45' }} />
+                <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    现在就能
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'column', gap: 14, marginTop: 12 }}>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        六个展项点开就讲：讲解稿、深讲、三条问答，断网照样开口
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        自由提问交给本机千问，答不上会明说，不硬编
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        举一张图认展品，本机视觉模型，实测 3.6 秒出声
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        打字提问、语音播报、字幕同步、镜头跟着讲到哪推到哪
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        12 道互动问答、6 组问候闲聊、一段游览动线
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', gap: 14 }}>
+                    <Text style={{ fontSize: 14, color: '#2B4A45', width: 18 }}>·</Text>
+                    <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.82, lineHeight: 1.7, flex: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        11 项开机自检逐条亮灯，现场先看这一屏再开始
+                    </Text>
+                </Box>
+            </Box>
+        </Box>
+
+        <Box style={{ width: 550, flexDirection: 'column' }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 10, height: 40 }}>
+                <Box style={{ width: 10, height: 10, background: '#A8402F' }} />
+                <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    现在还不能
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                <Box style={{ background: 'rgba(168,64,47,0.07)', padding: '12px 16px', flexDirection: 'column' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#A8402F', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        对着麦克风说话
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.65, marginTop: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        本机还没接语音识别模型。软件自己那一栏写的就是「文字问答」，麦克风按钮暂时没反应。
+                    </Text>
+                </Box>
+
+                <Box style={{ background: 'rgba(168,64,47,0.07)', padding: '12px 16px', flexDirection: 'column' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#A8402F', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        用 Local 版看图
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.65, marginTop: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        纯文本 GGUF 没带视觉投影器。看图请用默认版（接本机 Ollama）。
+                    </Text>
+                </Box>
+
+                <Box style={{ background: 'rgba(168,64,47,0.07)', padding: '12px 16px', flexDirection: 'column' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#A8402F', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        问天气、新闻、比分
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.65, marginTop: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        不联网、也不猜。会直接说自己查不到，然后引回侨乡的话题。
+                    </Text>
+                </Box>
+
+                <Box style={{ background: 'rgba(168,64,47,0.07)', padding: '12px 16px', flexDirection: 'column' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#A8402F', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        断网时让它说任意新句子
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.65, marginTop: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        没预录过的新句子只上字幕，不换音色。要覆盖，赛前跑一遍预录。
+                    </Text>
+                </Box>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.62, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            把边界写在前面，现场就不会被问到答不上来的问题。
+        </Text>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            13 / 14
+        </Text>
+    </Box>
+</Slide>

@@ -10,8 +10,21 @@
 //! 自包含：`web/` 与 `themes/` 在编译期由 build.rs 压进 exe，首次运行释放到
 //! 系统临时目录，因此单个 exe 拷到任何位置都能双击运行，无需外部文件夹。
 
+mod asr;
+#[cfg(feature = "local-llm")]
+mod embedded_model;
+mod edge_tts;
 mod http;
+mod online;
 mod piper;
+mod vision_route;
+mod voice_bake;
+mod winrt_tts;
+
+/// 本地 GGUF 大模型（内嵌推理，无需 Ollama / 云端）。
+/// 仅在 `cargo build --features local-llm` 时参与编译，且构建机需装有 C/C++ 工具链。
+#[cfg(feature = "local-llm")]
+mod local_llm;
 
 use std::fs;
 use std::io::Read;
@@ -21,6 +34,10 @@ use gpui_kit::*;
 use gpui_webview::WebView;
 
 const TITLE: &str = "侨乡 · 江门 AI 智能讲解员";
+
+/// 运行时资产释放目录名。`voice_bake` 也用它定位演示时在线合成的语音缓存；
+/// 升版本时两处必须同步，否则烘焙会去旧目录找缓存。
+pub(crate) const BUNDLE_DIR_NAME: &str = "qx-guide-bundle-v9";
 
 /// 编译期打进 exe 的页面 + 主题包（build.rs 生成）。
 const BUNDLE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bundle.zip"));
@@ -33,7 +50,9 @@ fn extract_bundle() -> PathBuf {
     // v5：主镜头取景占比改为 0.60（讲解员缩小、露出后排展品），强制刷新临时解压目录
     // v6：46 条预生成语音换成卡通活泼女声、缓存键升 v8，强制释放新 tts-cache 音频
     // v7：吉祥物模式首帧即隐藏 VRM 人形网格 + 加载层等吉祥物就位再揭开，消除开场旧人物闪现
-    let dir = std::env::temp_dir().join("qx-guide-bundle-v7");
+    // v8：左上角加品牌标志（assets/brand/*.svg），强制释放新页面避免旧 index.html 残留
+    // v9：新增 asr/（whisper.dll + ggml*.dll + base 量化模型），换目录避免旧版残留 DLL 干扰
+    let dir = std::env::temp_dir().join(BUNDLE_DIR_NAME);
     let _ = fs::create_dir_all(&dir);
     let reader = std::io::Cursor::new(BUNDLE);
     let mut archive = zip::ZipArchive::new(reader).expect("内嵌资产损坏");
@@ -91,10 +110,153 @@ fn main() {
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(8765);
 
+    // ── 解析 LLM 启动参数 ─────────────────────────────────────
+    //   --model <GGUF路径>   使用本地 GGUF 模型（需 --features local-llm 构建）
+    //   --ollama-url <URL>   Ollama / llama-server 兼容协议地址（默认 http://127.0.0.1:11434）
+    //   --ollama-model <名>  模型名（默认 qwen3.5:4b）
+    //   --llm-backend <auto|ollama|local|none>
+    // 默认行为与旧版一致：走本机 Ollama，模型 qwen3.5:4b。
+    let mut cfg = http::LlmConfig::default();
+    let mut bake_voices = false;
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--bake-voices" => {
+                // 赛前联网跑一次：把现场会说的每句话固化成小伊原声。
+                bake_voices = true;
+                i += 1;
+            }
+            "--model" => {
+                if let Some(v) = args.get(i + 1) {
+                    cfg.backend = http::LlmBackend::Local;
+                    cfg.local_model = Some(PathBuf::from(v));
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--ollama-url" => {
+                if let Some(v) = args.get(i + 1) {
+                    cfg.ollama_url = v.clone();
+                    if cfg.backend == http::LlmBackend::Auto {
+                        cfg.backend = http::LlmBackend::Ollama;
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--ollama-model" => {
+                if let Some(v) = args.get(i + 1) {
+                    cfg.ollama_model = v.clone();
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--llm-backend" => {
+                if let Some(v) = args.get(i + 1) {
+                    cfg.backend = match v.as_str() {
+                        "ollama" => http::LlmBackend::Ollama,
+                        "local" => http::LlmBackend::Local,
+                        "none" => http::LlmBackend::None,
+                        _ => cfg.backend,
+                    };
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+
+    // ── 内嵌模型（Local 版默认，零 Ollama 依赖）──────────────────
+    // exe 带 PE overlay 时自动改用自带的 Qwen2.5-VL-3B：现场只需一个文件，
+    // 不需要装 Ollama、不需要 --model、不需要把 3 GiB 模型另拷一份。
+    // QX_NO_EMBEDDED_MODEL=1 可强制关掉，回退到原来的 Ollama / --model 行为。
+    #[cfg(feature = "local-llm")]
+    {
+        // 只有非空且非 0 才算「关闭」；空值（例如脚本里误写 QX_NO_EMBEDDED_MODEL=）
+        // 不应把内嵌模型关掉。
+        let no_embed = std::env::var("QX_NO_EMBEDDED_MODEL")
+            .is_ok_and(|v| !v.is_empty() && v != "0");
+        if cfg.local_model.is_none() && !no_embed {
+            if let Some(m) = crate::embedded_model::release() {
+                cfg.backend = http::LlmBackend::Local;
+                cfg.local_mmproj = Some(m.mmproj);
+                cfg.local_model = Some(m.model);
+                cfg.embedded_model = true;
+                eprintln!("[embed] Local 版已启用内置 Qwen2.5-VL-3B（无需 Ollama / --model）");
+            }
+        }
+    }
+
+    // ── 本地模型自检（仅 `local-llm` 构建可用）────────────────────
+    // 不创建窗口、不启 HTTP，直接加载 GGUF 生成一段话，用于无桌面环境验证
+    // 内嵌推理链路是否真的可用：QX_LLM_SELFTEST=1 qx-desktop.exe --model <GGUF>
+    // 默认构建（无此 feature）下整段代码不参与编译，行为完全不变。
+    #[cfg(feature = "local-llm")]
+    if std::env::var_os("QX_LLM_SELFTEST").is_some() {
+        use qx_core::llm::{LlmClient, Message};
+        match &cfg.local_model {
+            Some(p) => {
+                eprintln!("[selftest] 加载本地模型：{}", p.display());
+                match crate::local_llm::LocalLlm::load(
+                    p,
+                    cfg.local_mmproj.as_deref(),
+                    cfg.kb_prompt.clone(),
+                ) {
+                    Ok(llm) => {
+                        eprintln!("[selftest] 模型就绪，开始真实生成…");
+                        let msgs = vec![
+                            Message::system(
+                                "你是 AI 智能讲解员小侨，在侨乡江门展厅为观众讲解。\
+                                 只谈展馆相关内容，回答不超过 60 字，口语化、不分点。",
+                            ),
+                            Message::user("请用一句话介绍你自己，并说说你负责讲解什么。"),
+                        ];
+                        match llm.chat(&msgs, 0.7, 64) {
+                            Ok(ans) => eprintln!("[selftest] ✅ 生成成功：{ans}"),
+                            Err(e) => eprintln!("[selftest] ❌ 生成失败：{e}"),
+                        }
+                    }
+                    Err(e) => eprintln!("[selftest] ❌ 模型加载失败：{e}"),
+                }
+            }
+            None => eprintln!("[selftest] ❌ 需要 --model <GGUF 路径>"),
+        }
+        return;
+    }
+
+    // 赛前「离线小伊」烘焙：不建窗口、不起 HTTP，只联网合成语音并写报告文件
+    // （GUI 子系统进程没有控制台，stdout 不可见，报告落盘才可核对）。
+    // 默认写回编译时的源码根 rust-rewrite/；换机器可用 QX_VOICE_BAKE_DIR 指过去。
+    if bake_voices {
+        let src = std::env::var("QX_VOICE_BAKE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../"));
+        let report = voice_bake::run(&src, &cfg);
+        let _ = fs::write(src.join("voice_bake_report.txt"), &report);
+        eprintln!("{report}");
+        return;
+    }
+
     // 端口被旧实例占用时顺延，保证同时开着旧桌面端也不会冲突。
     let port = (preferred..preferred + 8)
-        .find_map(|p| http::spawn(root.clone(), p).ok())
+        .find_map(|p| http::spawn(root.clone(), p, cfg.clone()).ok())
         .expect("无法启动 Rust 本地服务（8765-8772 均被占用）");
+
+    // 无桌面会话的后端自检模式：只起 HTTP、不创建 WebView2 窗口，便于
+    // 直接 curl /api/ask 验证接口（含识图）。不设 QX_HEADLESS 时行为完全不变。
+    if std::env::var_os("QX_HEADLESS").is_some() {
+        eprintln!("[headless] 服务已就绪：http://127.0.0.1:{port}/ （Ctrl+C 结束）");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    }
+
     let url = std::sync::Arc::new(format!("http://127.0.0.1:{port}/"));
     let for_window = url.clone();
 

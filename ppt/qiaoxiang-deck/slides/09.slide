@@ -1,0 +1,55 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#141C1F', position: 'relative', overflow: 'hidden' }}>
+    <Image src='assets/ui_quiz.png' style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, objectFit: 'cover' }} />
+    <Box style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, background: 'linear-gradient(to right, rgba(14,20,23,0.95) 0%, rgba(14,20,23,0.92) 28%, rgba(14,20,23,0.72) 40%, rgba(14,20,23,0.18) 54%, rgba(14,20,23,0) 66%)' }} />
+
+    <Box style={{ position: 'absolute', top: 96, left: 76, width: 420, flexDirection: 'column' }}>
+        <Text style={{ fontSize: 13, color: '#D87A63', letterSpacing: 5, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif", fontWeight: 'bold' }}>
+            人机互动 · 现场问答
+        </Text>
+        <Text style={{ fontSize: 40, color: '#F5F1E8', fontWeight: 'bold', marginTop: 18, lineHeight: 1.35, fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+            讲解之外，
+            <br />
+            观众也能答一道
+        </Text>
+
+        <Box style={{ width: 62, height: 2, background: '#A8402F', marginTop: 24 }} />
+
+        <Text style={{ fontSize: 15, color: '#F5F1E8', opacity: 0.85, marginTop: 24, lineHeight: 1.85, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            「小侨考考你」共 12 道题，每题三选一。答对答错都有对应话术，不糊弄。
+        </Text>
+
+        <Box style={{ borderLeft: '3px solid #A8402F', paddingLeft: 14, marginTop: 22 }}>
+            <Text style={{ fontSize: 12, color: '#D87A63', letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                第 1 题 · 开平碉楼
+            </Text>
+            <Text style={{ fontSize: 16, color: '#F5F1E8', marginTop: 8, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                开平碉楼为什么叫「碉」楼？
+            </Text>
+            <Text style={{ fontSize: 13, color: '#F5F1E8', opacity: 0.6, marginTop: 6, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                答对后的反馈：「答对了！它本来就是为了防匪防洪才盖成这样。」
+            </Text>
+        </Box>
+
+        <Text style={{ fontSize: 15, color: '#F5F1E8', opacity: 0.8, marginTop: 24, lineHeight: 1.85, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            点「听小侨讲」，她再用知识库里的语音把这道题背后的东西补一遍 —— 互动不是猜谜，是接着讲。
+        </Text>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 424, left: 1010, width: 196, background: 'rgba(14,20,23,0.8)', padding: '12px 14px' }}>
+        <Text style={{ fontSize: 12, color: '#D87A63', letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            已选 A
+        </Text>
+        <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.8, lineHeight: 1.6, marginTop: 6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            答对的反馈当场出现在卡片底部
+        </Text>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 668, left: 76, width: 420, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.42, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡 · 江门 AI 智能讲解员
+        </Text>
+        <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            09 / 14
+        </Text>
+    </Box>
+</Slide>

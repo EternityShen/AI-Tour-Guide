@@ -23,7 +23,7 @@ use qx_core::{
     camera::{focus_view, CameraPath, V3},
     Guide, LlmClient, NoLlm, OllamaClient, Theme,
 };
-use std::{collections::HashSet, fs, net::TcpStream, path::PathBuf, time::Duration};
+use std::{collections::HashSet, fs, net::TcpStream, path::PathBuf, sync::Arc, time::Duration};
 
 /// 内嵌资产释放目录；改版本号可强制刷新缓存。
 const ASSET_DIR: &str = "qx-guide-native-assets-v2";
@@ -62,10 +62,10 @@ fn embedded_theme() -> Theme {
 
 fn make_guide(theme: Theme) -> Guide {
     let addr = "127.0.0.1:11434".parse().unwrap();
-    let llm: Box<dyn LlmClient> = if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
-        Box::new(OllamaClient::default())
+    let llm: Arc<dyn LlmClient> = if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+        Arc::new(OllamaClient::default())
     } else {
-        Box::new(NoLlm)
+        Arc::new(NoLlm)
     };
     Guide::with_llm(theme, llm)
 }

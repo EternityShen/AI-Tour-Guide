@@ -1,0 +1,30 @@
+#pragma code_page(65001)
+
+// exe 文件图标：资源管理器、任务栏、Alt+Tab、标题栏都取这里。
+// 图形为「碉楼开声」，由 ppt/qiaoxiang-deck/brand/logo-icon.ico 复制而来（七档尺寸）。
+1 ICON "app.ico"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS 0x40004L
+FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404B0"
+    BEGIN
+      VALUE "CompanyName", "侨乡数字文旅项目组"
+      VALUE "FileDescription", "侨乡·江门 AI 智能讲解员"
+      VALUE "ProductName", "侨乡·江门 AI 智能讲解员"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "OriginalFilename", "QiaoxiangGuide.exe"
+      VALUE "LegalCopyright", "Copyright (C) 2026 侨乡数字文旅项目组"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x804, 1200
+  END
+END

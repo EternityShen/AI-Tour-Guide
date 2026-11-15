@@ -1,0 +1,118 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#F5F1E8', padding: '24px 72px', flexDirection: 'column' }}>
+    <Box style={{ height: 104, flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        <Box style={{ width: 3, height: 34, background: '#A8402F' }} />
+        <Box style={{ flexDirection: 'column' }}>
+            <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                四层链路，全在同一台机器里
+            </Text>
+            <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.5, marginTop: 8, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                层名与措辞取自软件内「技术架构」页，右侧是该页的实际画面
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 508, flexDirection: 'row', gap: 36 }}>
+        <Box style={{ width: 706, flexDirection: 'column', gap: 12 }}>
+            <Box style={{ background: '#2B4A45', padding: '16px 20px', flexDirection: 'column' }}>
+                <Text style={{ fontSize: 12, color: '#D87A63', letterSpacing: 3, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    展示层
+                </Text>
+                <Text style={{ fontSize: 17, color: '#F5F1E8', marginTop: 8, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    Three.js r187 + VRM 1.0 数字人 · 程序化展台 · 无构建、纯本地 vendor
+                </Text>
+            </Box>
+
+            <Box style={{ background: 'rgba(43,74,69,0.08)', padding: '16px 20px', flexDirection: 'column' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 3, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    交互层
+                </Text>
+                <Text style={{ fontSize: 17, color: '#1F2A2E', marginTop: 8, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    文字输入 · 字幕与语音同步 · 点展项直接开讲
+                </Text>
+                <Text style={{ fontSize: 13, color: '#A8402F', marginTop: 6, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    同一页上「识别模型加载」一栏，软件自己标的是「文字问答」
+                </Text>
+            </Box>
+
+            <Box style={{ background: 'rgba(43,74,69,0.08)', padding: '16px 20px', flexDirection: 'column' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 3, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    认知层
+                </Text>
+                <Text style={{ fontSize: 17, color: '#1F2A2E', marginTop: 8, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    展项知识库（规则召回）+ 本地千问 qwen3.5:4b
+                </Text>
+                <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.6, marginTop: 6, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    命中走结构化答案，未命中才交大模型；重要史实不让模型自由发挥
+                </Text>
+            </Box>
+
+            <Box style={{ background: 'rgba(43,74,69,0.08)', padding: '16px 20px', flexDirection: 'column' }}>
+                <Text style={{ fontSize: 12, color: '#A8402F', letterSpacing: 3, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    语音层
+                </Text>
+                <Text style={{ fontSize: 17, color: '#1F2A2E', marginTop: 8, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    语音合成 · 逐句生成口型轨道，与 3D 表情、手势同步
+                </Text>
+            </Box>
+
+            <Text style={{ fontSize: 14, color: '#1F2A2E', opacity: 0.55, lineHeight: 1.7, marginTop: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                没有服务器，所以没有「连不上服务器」这个故障项。
+            </Text>
+        </Box>
+
+        <Box style={{ flex: 1, flexDirection: 'column', gap: 18 }}>
+            <Box style={{ width: 390, height: 219, overflow: 'hidden', background: '#141C1F' }}>
+                <Image src='assets/ui_tech.png' style={{ width: 390, height: 219, objectFit: 'cover' }} />
+            </Box>
+            <Text style={{ fontSize: 12, color: '#1F2A2E', opacity: 0.45, lineHeight: 1.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                软件内「技术架构」弹层实拍（本机运行画面）
+            </Text>
+
+            <Box style={{ width: '100%', height: 1, background: '#1F2A2E', opacity: 0.12 }} />
+
+            <Box style={{ flexDirection: 'column', gap: 10 }}>
+                <Box style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        知识条目
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        30 条
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        识别模型加载
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        文字问答
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        合成模型加载
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        1.5 s
+                    </Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        本地大模型
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', fontWeight: 'bold', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        qwen3.5:4b
+                    </Text>
+                </Box>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡 · 江门 AI 智能讲解员
+        </Text>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            05 / 14
+        </Text>
+    </Box>
+</Slide>

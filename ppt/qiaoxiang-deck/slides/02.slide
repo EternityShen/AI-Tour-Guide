@@ -1,0 +1,98 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#F5F1E8', padding: '24px 72px', flexDirection: 'column' }}>
+    <Box style={{ height: 104, flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        <Box style={{ width: 3, height: 34, background: '#A8402F' }} />
+        <Box style={{ flexDirection: 'column' }}>
+            <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                为什么要在展厅里放一个讲解员
+            </Text>
+            <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.5, marginTop: 8, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                以下三条取自软件内「评审资料 · 应用价值」原文
+            </Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 512, flexDirection: 'row', gap: 38 }}>
+        <Box style={{ width: 700, flexDirection: 'column', gap: 22 }}>
+            <Box style={{ flexDirection: 'row', gap: 20, flex: 1, alignItems: 'flex-start' }}>
+                <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#A8402F', width: 44, fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    01
+                </Text>
+                <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        旺季讲解员排不过来
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.7, marginTop: 8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        一队人挤在碉楼底下，后面的人听不清，也看不见讲解员指的那一处。
+                    </Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flexDirection: 'row', gap: 20, flex: 1, alignItems: 'flex-start' }}>
+                <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#A8402F', width: 44, fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    02
+                </Text>
+                <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        办个临时展，讲解词要重写一遍
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.7, marginTop: 8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        换展品就得重新组织内容、重新培训讲解员，还容易口径不一。
+                    </Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flexDirection: 'row', gap: 20, flex: 1, alignItems: 'flex-start' }}>
+                <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#A8402F', width: 44, fontFamily: "'Source Han Serif SC', 'SimSun', serif" }}>
+                    03
+                </Text>
+                <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2A2E', fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        游客随口问一句，讲解员不一定答得上
+                    </Text>
+                    <Text style={{ fontSize: 16, color: '#1F2A2E', opacity: 0.72, lineHeight: 1.7, marginTop: 8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                        「这楼为什么这么高」「窗户为什么这么小」——背下来的讲稿接不住这种追问。
+                    </Text>
+                </Box>
+            </Box>
+
+            <Box style={{ height: 1, background: '#1F2A2E', opacity: 0.12 }} />
+            <Text style={{ fontSize: 15, color: '#1F2A2E', opacity: 0.6, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                游客听到的信息是碎片的：一段讲稿、一块展板、一句答不上来的「你去问讲解员」。
+            </Text>
+        </Box>
+
+        <Box style={{ flex: 1, background: '#2B4A45', padding: '38px 32px', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 12, color: '#F5F1E8', opacity: 0.55, letterSpacing: 4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                我们的做法
+            </Text>
+            <Text style={{ fontSize: 24, color: '#F5F1E8', lineHeight: 1.7, fontFamily: "'Source Han Serif SC', 'SimSun', serif", fontWeight: 'bold' }}>
+                把它做成
+                <br />
+                一台普通电脑
+                <br />
+                就能跑的东西。
+            </Text>
+            <Box style={{ width: 96, height: 3, background: '#A8402F' }} />
+            <Box style={{ flexDirection: 'column', gap: 12 }}>
+                <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.72, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    讲解词写进主题包，换展只改文件
+                </Text>
+                <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.72, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    游客怎么问都能接
+                </Text>
+                <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.72, lineHeight: 1.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+                    接不上，就老实说不知道
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡 · 江门 AI 智能讲解员
+        </Text>
+        <Text style={{ fontSize: 13, color: '#1F2A2E', opacity: 0.4, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            02 / 14
+        </Text>
+    </Box>
+</Slide>

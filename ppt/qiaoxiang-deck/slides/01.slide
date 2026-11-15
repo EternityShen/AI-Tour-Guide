@@ -1,0 +1,40 @@
+<Slide style={{ width: '1280px', height: '720px', background: '#141C1F', position: 'relative', overflow: 'hidden' }}>
+    <Image src='assets/ui_home.png' style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, objectFit: 'cover' }} />
+    <Box style={{ position: 'absolute', top: 0, left: 0, width: 1280, height: 720, background: 'linear-gradient(to right, rgba(18,25,28,0.96) 0%, rgba(18,25,28,0.92) 30%, rgba(18,25,28,0.62) 48%, rgba(18,25,28,0.12) 68%, rgba(18,25,28,0) 84%)' }} />
+
+    <Image src='assets/logo-mark.png' style={{ position: 'absolute', top: 44, left: 92, width: 64, height: 64, objectFit: 'contain' }} />
+
+    <Box style={{ position: 'absolute', top: 128, left: 92, width: 500, flexDirection: 'column' }}>
+        <Text style={{ fontSize: 14, color: '#D87A63', letterSpacing: 6, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif", fontWeight: 'bold' }}>
+            侨乡文化数字化 · 现场展演
+        </Text>
+        <Text style={{ fontSize: 68, color: '#F5F1E8', lineHeight: 1.1, marginTop: 24, fontFamily: "'Source Han Serif SC', 'SimSun', serif", fontWeight: 'bold' }}>
+            侨乡 · 江门
+        </Text>
+        <Box style={{ width: 82, height: 3, background: '#A8402F', marginTop: 20 }} />
+        <Text style={{ fontSize: 34, color: '#F5F1E8', marginTop: 20, fontFamily: "'Source Han Serif SC', 'SimSun', serif", fontWeight: 'bold', letterSpacing: 1 }}>
+            AI 智能讲解员「小侨」
+        </Text>
+        <Text style={{ fontSize: 17, color: '#F5F1E8', opacity: 0.82, marginTop: 26, lineHeight: 1.8, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            一台笔记本，一个 exe，六个展项。
+            <br />
+            断网也能开口，还认得出你手里那张照片。
+        </Text>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 584, left: 92, width: 440, height: 1, background: '#F5F1E8', opacity: 0.2 }} />
+    <Box style={{ position: 'absolute', top: 604, left: 92, width: 500, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            侨乡数字文旅项目组
+        </Text>
+        <Text style={{ fontSize: 14, color: '#F5F1E8', opacity: 0.7, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            2026 · 11
+        </Text>
+    </Box>
+
+    <Box style={{ position: 'absolute', top: 640, left: 92, width: 460 }}>
+        <Text style={{ fontSize: 11, color: '#F5F1E8', opacity: 0.38, letterSpacing: 1, fontFamily: "'Source Han Sans SC', 'Microsoft YaHei', sans-serif" }}>
+            封面为本机实际运行截图，非效果图
+        </Text>
+    </Box>
+</Slide>
