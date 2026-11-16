@@ -187,7 +187,10 @@ function tex(file, rx = 1, ry = 1, srgb = false) {
   const key = `${file}|${rx}|${ry}|${srgb}`;
   const hit = texCache.get(key);
   if (hit) return hit;
-  const t = texLoader.load(TEXDIR + file, undefined, undefined, () => console.warn('[tex] 缺失', file));
+  const t = texLoader.load(TEXDIR + file, undefined, undefined, () => {
+    console.warn('[tex] 缺失', file);
+    window.qxLog?.('warn', '贴图缺失：' + file, { source: 'scene' });
+  });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(rx, ry);
   t.anisotropy = 8;

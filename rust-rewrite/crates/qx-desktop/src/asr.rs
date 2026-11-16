@@ -79,7 +79,10 @@ fn model_cstring(path: &Path) -> Option<CString> {
 unsafe fn sym<T: Copy>(h: *mut c_void, name: &[u8]) -> Option<T> {
     let p = GetProcAddress(h, name.as_ptr() as *const c_char);
     if p.is_null() {
-        eprintln!("[asr] whisper.dll 缺少导出符号 {}", String::from_utf8_lossy(name));
+        tracing::warn!(
+            symbol = %String::from_utf8_lossy(name),
+            "whisper.dll 缺少导出符号"
+        );
         return None;
     }
     Some(std::mem::transmute_copy::<*mut c_void, T>(&p))
@@ -374,7 +377,7 @@ impl Asr {
         });
         // 现场排障开关：跳过 whisper.dll 加载，退回纯键盘问答。
         if std::env::var("QX_ASR_DISABLE").is_ok_and(|v| v != "0" && !v.is_empty()) {
-            eprintln!("[asr] 已由 QX_ASR_DISABLE 关闭");
+            tracing::warn!("离线语音识别已由 QX_ASR_DISABLE 关闭");
             *me.error.lock().unwrap() = "已由 QX_ASR_DISABLE 关闭".into();
             return me;
         }
@@ -391,10 +394,10 @@ impl Asr {
                 *me.engine.lock().unwrap() = Some(e);
                 me.load_ms.store(ms, Ordering::Relaxed);
                 me.ready.store(true, Ordering::Relaxed);
-                eprintln!("[asr] 离线识别就绪：{} ms", ms);
+                tracing::info!(elapsed_ms = ms, "离线语音识别就绪");
             }
             Err(e) => {
-                eprintln!("[asr] 离线识别不可用：{e}");
+                tracing::warn!(error = %e, "离线语音识别不可用");
                 *me.error.lock().unwrap() = e;
             }
         }
@@ -433,7 +436,7 @@ fn pick_model(dir: &Path) -> Option<PathBuf> {
         if p.is_file() {
             return Some(p);
         }
-        eprintln!("[asr] QX_ASR_MODEL 指向的文件不存在：{}", p.display());
+        tracing::warn!(path = %p.display(), "QX_ASR_MODEL 指向的文件不存在");
     }
     ["ggml-base-q5_1.bin", "ggml-small-q5_1.bin", "ggml-base.bin", "ggml-small.bin"]
         .iter()

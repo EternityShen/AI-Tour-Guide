@@ -119,7 +119,7 @@ fn copy_runtime_voices(out: &Path, existing: &mut HashSet<String>) -> (usize, us
 fn demo_replies(source_root: &Path, cfg: &LlmConfig) -> Vec<(String, String)> {
     let theme_path = source_root.join("themes/qiaoxiang/theme.json");
     let Ok(theme) = Theme::load(&theme_path) else {
-        eprintln!("[voice-bake] 读取主题包失败：{}", theme_path.display());
+        tracing::warn!(path = %theme_path.display(), "语音烘焙：读取主题包失败");
         return Vec::new();
     };
     let guide = Guide::with_llm(theme, build_llm(cfg));

@@ -97,11 +97,11 @@ pub fn release() -> Option<EmbeddedModels> {
     f.seek(SeekFrom::Start(start)).ok()?;
     copy_section(&mut f, &model, model_size)?;
     copy_section(&mut f, &mmproj, mmproj_size)?;
-    eprintln!(
-        "[embed] 内嵌模型就绪：{:.2} GiB + {:.2} GiB → {}",
-        model_size as f64 / (1 << 30) as f64,
-        mmproj_size as f64 / (1 << 30) as f64,
-        dir.display()
+    tracing::info!(
+        model_gib = %format!("{:.2}", model_size as f64 / (1 << 30) as f64),
+        mmproj_gib = %format!("{:.2}", mmproj_size as f64 / (1 << 30) as f64),
+        dir = %dir.display(),
+        "内嵌模型已释放并就绪"
     );
     Some(EmbeddedModels { model, mmproj })
 }

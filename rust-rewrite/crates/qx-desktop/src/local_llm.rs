@@ -4,11 +4,12 @@
 //! exe 内嵌的 Qwen2.5-VL-3B（主模型 + mmproj 多模态投影器），文本与看图
 //! 都在本进程用 llama.cpp 完成；也可以 `--model <GGUF>` 换外置纯文本模型。
 //!
-//! 知识库以 system prompt 的形式注入（`kb_prompt`），确定性 KB 路由仍由
-//! qx-core 优先处理，LLM 只在兜底时用到这份资料。
+//! 知识库由 qx-core 的 `Guide` 统一写进 system prompt；本模块只负责推理，
+//! 不再自己保存/追加知识库，避免「主题切换后旧 KB 残留」和 prompt 重复。
 //!
-//! 线程安全：模型用 `Box::leak` 提升为 `'static`（进程级单例，仅加载一次），
-//! `LlamaContext` / `MtmdContext` 的求值都不是线程安全的，统一包进 Mutex。
+//! 线程安全：模型用 `Box::leak` 提升为 `'static`（进程级单例，仅加载一次；
+//! 主题切换不会重建本对象），`LlamaContext` / `MtmdContext` 的求值都不是
+//! 线程安全的，统一包进 Mutex。
 
 use std::num::NonZeroU32;
 use std::path::Path;
@@ -27,9 +28,9 @@ use llama_cpp_2::mtmd::{
 use llama_cpp_2::sampling::LlamaSampler;
 use qx_core::llm::{LlmClient, Message};
 
-/// 知识库提示词 + 图片 token 会占掉不少上下文，8K 比原来的 4K 更稳。
-/// n_batch 同样要够大：kb_prompt 注入后单轮 prompt 可达 ~3.5K token，
-/// 超过 n_batch 会触发 `GGML_ASSERT(n_tokens_all <= n_batch)`。
+/// 知识库 + 图片 token 会占掉不少上下文，8K 比原来的 4K 更稳。
+/// llama.cpp 要求单次 decode 的 token 数不超过 n_batch，超过会触发
+/// `GGML_ASSERT(n_tokens_all <= n_batch)`，因此 chat_text 按 N_BATCH 分块喂入。
 const N_CTX: i32 = 8192;
 const N_BATCH: i32 = 4096;
 
@@ -39,8 +40,6 @@ pub struct LocalLlm {
     model: &'static LlamaModel,
     /// 多模态投影器；None = 纯文本模型，不能看图。
     mtmd: Option<Mutex<MtmdContext>>,
-    /// 展厅知识库摘要，拼进 system message。
-    kb_prompt: String,
     n_ctx: i32,
     n_threads: i32,
 }
@@ -48,7 +47,7 @@ pub struct LocalLlm {
 impl LocalLlm {
     /// 加载本地 GGUF。`mmproj` 给定时启用 mtmd 视觉；加载失败只降级视觉，
     /// 不让整个问答引擎起不来（现场纯文本仍可用）。
-    pub fn load(path: &Path, mmproj: Option<&Path>, kb_prompt: String) -> Result<Self, String> {
+    pub fn load(path: &Path, mmproj: Option<&Path>) -> Result<Self, String> {
         if !path.exists() {
             return Err(format!("本地模型文件不存在：{}", path.display()));
         }
@@ -72,11 +71,11 @@ impl LocalLlm {
                 params.n_threads = n_threads;
                 match MtmdContext::init_from_file(&p_str, model, &params) {
                     Ok(c) => {
-                        eprintln!("[local-llm] mmproj 就绪，视觉推理在本进程完成");
+                        tracing::info!("mmproj 就绪，视觉推理在本进程完成");
                         Some(Mutex::new(c))
                     }
                     Err(e) => {
-                        eprintln!("[local-llm] mmproj 加载失败，看图将降级：{e}");
+                        tracing::warn!(error = %e, "mmproj 加载失败，看图请求将降级");
                         None
                     }
                 }
@@ -88,7 +87,6 @@ impl LocalLlm {
             backend,
             model,
             mtmd,
-            kb_prompt,
             n_ctx: N_CTX,
             n_threads,
         })
@@ -108,21 +106,15 @@ impl LocalLlm {
             .map_err(|e| format!("创建上下文失败：{e}"))
     }
 
-    /// 按 Qwen ChatML 拼提示词。system 消息前注入知识库摘要；
-    /// 带图时在最后一条 user 内容后追加 N 个 media marker（每张图一个）。
+    /// 按 Qwen ChatML 拼提示词。知识库已由 qx-core 的 Guide 写进 system 消息，
+    /// 这里不再重复注入；带图时在最后一条 user 内容后追加 N 个 media marker。
     fn build_prompt(&self, messages: &[Message], image_count: usize) -> String {
         let marker = mtmd_default_marker();
         let mut s = String::new();
-        let mut injected = false;
         let last = messages.len().saturating_sub(1);
         for (i, m) in messages.iter().enumerate() {
             s.push_str(&format!("<|im_start|>{}", m.role));
             s.push('\n');
-            if m.role == "system" && !injected && !self.kb_prompt.is_empty() {
-                s.push_str(&self.kb_prompt);
-                s.push('\n');
-                injected = true;
-            }
             s.push_str(&m.content);
             if i == last && image_count > 0 {
                 for _ in 0..image_count {
@@ -187,19 +179,26 @@ impl LocalLlm {
         }
 
         let mut ctx = self.fresh_context()?;
-        let mut batch = LlamaBatch::new(self.n_ctx as usize, 1);
-        for (i, t) in (0_i32..).zip(tokens.iter()) {
-            let is_last = i == prompt_len - 1;
-            batch
-                .add(*t, i, &[0], is_last)
-                .map_err(|e| format!("batch 添加失败：{e}"))?;
+        // 按 n_batch 分块喂入：单次 decode 超过 n_batch 会 GGML_ASSERT。
+        // 只在最后一个 token 上要 logits，其余块纯 prefill。
+        let mut batch = LlamaBatch::new(N_BATCH as usize, 1);
+        for (chunk_idx, chunk) in tokens.chunks(N_BATCH as usize).enumerate() {
+            batch.clear();
+            let base = chunk_idx as i32 * N_BATCH;
+            for (i, t) in chunk.iter().enumerate() {
+                let pos = base + i as i32;
+                let is_last = pos == prompt_len - 1;
+                batch
+                    .add(*t, pos, &[0], is_last)
+                    .map_err(|e| format!("batch 添加失败：{e}"))?;
+            }
+            ctx.decode(&mut batch)
+                .map_err(|e| format!("首轮解码失败：{e}"))?;
         }
-        ctx.decode(&mut batch)
-            .map_err(|e| format!("首轮解码失败：{e}"))?;
 
         let mut sampler = self.sampler(temperature);
         let mut out_tokens = Vec::new();
-        let mut n_cur = batch.n_tokens();
+        let mut n_cur = prompt_len;
         let max_out = num_predict as i32;
         loop {
             let token;

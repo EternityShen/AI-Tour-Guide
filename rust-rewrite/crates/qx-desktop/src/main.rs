@@ -15,6 +15,7 @@ mod asr;
 mod embedded_model;
 mod edge_tts;
 mod http;
+mod logging;
 mod online;
 mod piper;
 mod vision_route;
@@ -103,8 +104,18 @@ fn main() {
         std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "true");
     }
 
+    // 日志必须最先初始化：后面的资源释放、模型加载、HTTP 服务都靠它留痕。
+    // GUI 子系统没有控制台，日志默认落盘到 %LOCALAPPDATA%\QiaoxiangGuide\logs。
+    let _log_guard = logging::init();
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        log_dir = %logging::dir().map(|p| p.display().to_string()).unwrap_or_default(),
+        "侨乡 AI 智能讲解员启动"
+    );
+
     // 释放内嵌页面资产（首次或版本升级时），作为 HTTP 服务根。
     let root = extract_bundle();
+    tracing::info!(root = %root.display(), "内嵌页面与主题包已释放");
     let preferred = std::env::var("QX_PORT")
         .ok()
         .and_then(|s| s.parse::<u16>().ok())
@@ -188,7 +199,7 @@ fn main() {
                 cfg.local_mmproj = Some(m.mmproj);
                 cfg.local_model = Some(m.model);
                 cfg.embedded_model = true;
-                eprintln!("[embed] Local 版已启用内置 Qwen2.5-VL-3B（无需 Ollama / --model）");
+                tracing::info!("Local 版已启用内置 Qwen2.5-VL-3B（无需 Ollama / --model）");
             }
         }
     }
@@ -202,14 +213,14 @@ fn main() {
         use qx_core::llm::{LlmClient, Message};
         match &cfg.local_model {
             Some(p) => {
-                eprintln!("[selftest] 加载本地模型：{}", p.display());
+                tracing::info!(model = %p.display(), "本地模型自检：开始加载");
                 match crate::local_llm::LocalLlm::load(
                     p,
                     cfg.local_mmproj.as_deref(),
                     cfg.kb_prompt.clone(),
                 ) {
                     Ok(llm) => {
-                        eprintln!("[selftest] 模型就绪，开始真实生成…");
+                        tracing::info!("本地模型自检：模型就绪，开始真实生成");
                         let msgs = vec![
                             Message::system(
                                 "你是 AI 智能讲解员小侨，在侨乡江门展厅为观众讲解。\
@@ -218,14 +229,14 @@ fn main() {
                             Message::user("请用一句话介绍你自己，并说说你负责讲解什么。"),
                         ];
                         match llm.chat(&msgs, 0.7, 64) {
-                            Ok(ans) => eprintln!("[selftest] ✅ 生成成功：{ans}"),
-                            Err(e) => eprintln!("[selftest] ❌ 生成失败：{e}"),
+                            Ok(ans) => tracing::info!(answer = %ans, "本地模型自检：生成成功"),
+                            Err(e) => tracing::error!(error = %e, "本地模型自检：生成失败"),
                         }
                     }
-                    Err(e) => eprintln!("[selftest] ❌ 模型加载失败：{e}"),
+                    Err(e) => tracing::error!(error = %e, "本地模型自检：模型加载失败"),
                 }
             }
-            None => eprintln!("[selftest] ❌ 需要 --model <GGUF 路径>"),
+            None => tracing::error!("本地模型自检：需要 --model <GGUF 路径>"),
         }
         return;
     }
@@ -238,7 +249,9 @@ fn main() {
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../"));
         let report = voice_bake::run(&src, &cfg);
-        let _ = fs::write(src.join("voice_bake_report.txt"), &report);
+        let report_path = src.join("voice_bake_report.txt");
+        let _ = fs::write(&report_path, &report);
+        tracing::info!(path = %report_path.display(), "语音烘焙完成");
         eprintln!("{report}");
         return;
     }
@@ -251,6 +264,7 @@ fn main() {
     // 无桌面会话的后端自检模式：只起 HTTP、不创建 WebView2 窗口，便于
     // 直接 curl /api/ask 验证接口（含识图）。不设 QX_HEADLESS 时行为完全不变。
     if std::env::var_os("QX_HEADLESS").is_some() {
+        tracing::info!(url = %format!("http://127.0.0.1:{port}/"), "无头模式服务已就绪");
         eprintln!("[headless] 服务已就绪：http://127.0.0.1:{port}/ （Ctrl+C 结束）");
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
@@ -258,6 +272,7 @@ fn main() {
     }
 
     let url = std::sync::Arc::new(format!("http://127.0.0.1:{port}/"));
+    tracing::info!(url = %url.as_str(), "桌面端窗口即将打开");
     let for_window = url.clone();
 
     gpui_kit::application()
@@ -284,4 +299,5 @@ fn main() {
             })
             .expect("无法打开窗口");
         });
+    tracing::info!("桌面端已正常退出");
 }

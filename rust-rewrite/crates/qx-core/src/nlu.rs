@@ -459,7 +459,17 @@ impl Guide {
             Message::system(system),
             Message::user(user_text).with_images(images.to_vec()),
         ];
-        let raw = self.llm.chat(&msgs, 0.3, 220).ok()?;
+        let raw = match self.llm.chat(&msgs, 0.3, 220) {
+            Ok(raw) => raw,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    images = images.len(),
+                    "视觉模型调用失败，降级为无视觉回答"
+                );
+                return None;
+            }
+        };
         let cleaned = self.clean_llm(&raw, true);
         (!cleaned.is_empty()).then_some(cleaned)
     }
@@ -483,7 +493,17 @@ impl Guide {
             None => text.to_string(),
         };
         msgs.push(Message::user(content));
-        let raw = self.llm.chat(&msgs, temperature, 220).ok()?;
+        let raw = match self.llm.chat(&msgs, temperature, 220) {
+            Ok(raw) => raw,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    temperature = %temperature,
+                    "大模型调用失败，改走知识库兜底"
+                );
+                return None;
+            }
+        };
         let cleaned = self.clean_llm(&raw, drop_redirect);
         (!cleaned.is_empty()).then_some(cleaned)
     }

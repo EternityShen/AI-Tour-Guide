@@ -143,6 +143,7 @@ if (webglReady()) {
     });
   } catch (e) {
     console.error('3D 场景初始化失败，已降级：', e);
+    window.qxLog?.('error', '3D 场景初始化失败：' + ((e && e.message) || e), { source: 'main.js', stack: e && e.stack });
     world = NOOP_WORLD;
     avatar = NOOP_AVATAR;
     degrade3D('3D 场景初始化失败');
@@ -182,6 +183,7 @@ function degrade3D(reason) {
   degraded = true;
   cancelAnimationFrame(mainRaf);   // 主循环也一并停掉
   console.warn('[降级] ' + reason);
+  window.qxLog?.('warn', '[降级] ' + reason, { source: 'degrade3D' });
   // 停掉 3D 渲染循环、resize 监听并释放 GPU 资源，别让降级后的黑幕底下还在空转
   if (world && typeof world.destroy === 'function') { try { world.destroy(); } catch (e) { /* 忽略 */ } }
   world = NOOP_WORLD;
@@ -254,10 +256,11 @@ preloadModels(theme, {
     modelsTried += 1;
     updateReadyTag();
   },
-  onError: () => {
+  onError: (id, err) => {
     modelsFailed += 1;
     modelsTried += 1;
     updateReadyTag();
+    window.qxLog?.('warn', '展品模型加载失败：' + id, { source: 'scene', stack: err && err.stack });
   },
 }).then((m) => {
   modelsIn = Math.max(modelsIn, m.size);
@@ -265,7 +268,10 @@ preloadModels(theme, {
   updateReadyTag();
   if (modelsFailed) ui.toast(`${modelsFailed} 件展品模型没加载成功，先用占位件讲解`, 'error');
   console.info(`[model] 外部展品 ${m.size}/${wantModels} 件已就位`);
-}).catch((e) => console.warn('[model] 展品模型加载异常：', e));
+}).catch((e) => {
+  console.warn('[model] 展品模型加载异常：', e);
+  window.qxLog?.('warn', '展品模型加载异常：' + ((e && e.message) || e), { source: 'model', stack: e && e.stack });
+});
 // 非安全上下文（局域网 IP / 公网 IP / 主机名）下浏览器不给麦克风，提前讲清楚
 if (!window.isSecureContext) {
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
@@ -296,12 +302,14 @@ if (!window.isSecureContext) {
         }
       } catch (e) {
         console.warn('[avatar] 吉祥物模型不可用，恢复 VRM 讲解员:', e.message || e);
+        window.qxLog?.('warn', '吉祥物模型不可用，恢复 VRM 讲解员：' + (e.message || e), { source: 'avatar', stack: e && e.stack });
       }
       if (!mascotReady && typeof avatar.showVrmMeshes === 'function') avatar.showVrmMeshes();
     }
     if (world !== NOOP_WORLD) frameAvatar();
   } catch (e) {
     console.error('VRM 加载失败，改用无人物模式：', e);
+    window.qxLog?.('error', 'VRM 加载失败，改用无人物模式：' + ((e && e.message) || e), { source: 'avatar', stack: e && e.stack });
     avatar = NOOP_AVATAR;
     window.avatar = avatar;
     world.resetCamera();
@@ -320,6 +328,7 @@ setTimeout(() => {
 }, 15000);
 
 function bootFailed(msg) {
+  window.qxLog?.('error', '页面启动失败：' + msg, { source: 'bootFailed' });
   const el = $('loading');
   // 用 DOM + textContent 组装，不往 innerHTML 里拼字符串
   el.innerHTML = '';
@@ -464,6 +473,10 @@ async function runAsk(text, images) {
       const errText = timeout
         ? (images.length ? '看图回答 70 秒未完成（视觉模型可能还在加载）' : '本地服务 70 秒未响应（大模型或语音合成可能卡住）')
         : (netFail ? '本地服务连接失败' : `本地服务返回异常（${msg}）`);
+      window.qxLog?.(timeout || netFail ? 'warn' : 'error', '问答请求失败：' + errText, {
+        source: 'ask',
+        stack: e && e.stack,
+      });
       ui.setStatus(label, 'err');
       ui.showError(errText, () => ask(lastQuestion, lastImages, { force: true }));
     }
@@ -480,6 +493,7 @@ async function runAsk(text, images) {
   // 响应字段兜底：服务端异常/字段缺失时不再把 undefined 渲染到界面
   res = res || {};
   if (!res.reply || typeof res.reply !== 'string' || !res.reply.trim()) {
+    window.qxLog?.('warn', '回答内容为空（本地服务返回异常）', { source: 'ask' });
     ui.setStatus('服务返回异常', 'err');
     ui.showError('回答内容为空（本地服务返回异常），可点击重试', () => ask(lastQuestion, lastImages, { force: true }));
     return;
@@ -539,6 +553,7 @@ async function runAsk(text, images) {
       });
     } catch (e) {
       console.error('语音播放失败：', e);
+      window.qxLog?.('warn', '语音播放失败：' + ((e && e.message) || e), { source: 'audio', stack: e && e.stack });
       ui.toast('语音播放失败，字幕已显示', 'error');
     }
   } else {

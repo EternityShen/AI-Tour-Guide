@@ -392,6 +392,7 @@ export function createUI({ theme, themeList, guide, handlers }) {
     addCheck('本地服务接口', s
       ? { ok: true, val: `主题 ${s.theme} · 请求 ${s.requests} 次` }
       : { ok: false, val: '接口无响应' });
+    if (s && s.log_file) addCheck('运行日志', { ok: true, val: s.log_file });
 
     // 4. 语音链路（主机版未接入离线识别时，不显示该项，避免自检面板出现无意义红项）
     if (s) {

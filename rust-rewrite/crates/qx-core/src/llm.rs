@@ -120,6 +120,7 @@ impl LlmClient for OllamaClient {
 
         let mut stream = TcpStream::connect_timeout(&addr, self.timeout)
             .map_err(|e| format!("连接 Ollama 失败: {e}"))?;
+        let started = std::time::Instant::now();
         stream
             .set_read_timeout(Some(self.timeout))
             .and_then(|_| stream.set_write_timeout(Some(self.timeout)))
@@ -146,6 +147,13 @@ impl LlmClient for OllamaClient {
         let payload = &text[split + 4..];
         let value: serde_json::Value =
             serde_json::from_str(payload).map_err(|e| format!("解析响应失败: {e}"))?;
+        tracing::debug!(
+            host = %self.host,
+            model = %self.model,
+            messages = messages.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "Ollama 请求完成"
+        );
         Ok(value["message"]["content"]
             .as_str()
             .unwrap_or("")

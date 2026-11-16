@@ -80,20 +80,20 @@ impl PiperTts {
     fn init_inner(&self) -> Option<Inner> {
         let dir = &self.dir;
         if !self.has_assets() {
-            eprintln!("[piper] 缺少 TTS 资产（{}）", dir.display());
+            tracing::warn!(dir = %dir.display(), "缺少 Piper TTS 资产，离线神经语音不可用");
             return None;
         }
         unsafe {
             let h = LoadLibraryW(wide(&dir.join("espeakbridge.pyd").to_string_lossy()).as_ptr());
             if h.is_null() {
-                eprintln!("[piper] 加载 espeakbridge.pyd 失败（dir={}）", dir.display());
+                tracing::warn!(dir = %dir.display(), "加载 espeakbridge.pyd 失败");
                 return None;
             }
             let sym = |n: &str| -> Option<*mut c_void> {
                 let c = CString::new(n).ok()?;
                 let p = GetProcAddress(h, c.as_ptr());
                 if p.is_null() {
-                    eprintln!("[piper] espeakbridge.pyd 缺导出符号 {n}");
+                    tracing::warn!(symbol = %n, "espeakbridge.pyd 缺导出符号");
                 }
                 (!p.is_null()).then_some(p)
             };
@@ -105,12 +105,12 @@ impl PiperTts {
             // AUDIO_OUTPUT_SYNCHRONOUS = 2，返回采样率
             let rate = init(2, 0, data.as_ptr(), 0);
             if rate <= 0 {
-                eprintln!("[piper] espeak_Initialize 失败：rate={rate}");
+                tracing::warn!(rate, "espeak_Initialize 失败");
                 return None;
             }
             let voice = CString::new("cmn").ok()?;
             if set_voice(voice.as_ptr()) != 0 {
-                eprintln!("[piper] espeak_SetVoiceByName(cmn) 失败");
+                tracing::warn!("espeak_SetVoiceByName(cmn) 失败");
                 return None;
             }
 
@@ -118,12 +118,12 @@ impl PiperTts {
                 Ok(b) => match b.build() {
                     Ok(env) => env,
                     Err(e) => {
-                        eprintln!("[piper] onnxruntime 初始化失败：{e}");
+                        tracing::warn!(error = %e, "onnxruntime 初始化失败");
                         return None;
                     }
                 },
                 Err(e) => {
-                    eprintln!("[piper] 加载 onnxruntime.dll 失败：{e}");
+                    tracing::warn!(error = %e, "加载 onnxruntime.dll 失败");
                     return None;
                 }
             };
@@ -131,29 +131,29 @@ impl PiperTts {
                 Ok(mut b) => match b.commit_from_file(dir.join("zh_CN-huayan-medium.onnx")) {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("[piper] 加载 huayan.onnx 失败：{e}");
+                        tracing::warn!(error = %e, "加载 huayan.onnx 失败");
                         return None;
                     }
                 },
                 Err(e) => {
-                    eprintln!("[piper] 创建 ORT 会话失败：{e}");
+                    tracing::warn!(error = %e, "创建 ORT 会话失败");
                     return None;
                 }
             };
 
             let json: serde_json::Value = match serde_json::from_str(
                 &std::fs::read_to_string(dir.join("zh_CN-huayan-medium.onnx.json"))
-                    .map_err(|e| eprintln!("[piper] 读取 onnx.json 失败：{e}"))
+                    .map_err(|e| tracing::warn!(error = %e, "读取 onnx.json 失败"))
                     .ok()?,
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("[piper] 解析 onnx.json 失败：{e}");
+                    tracing::warn!(error = %e, "解析 onnx.json 失败");
                     return None;
                 }
             };
             let Some(pm) = json["phoneme_id_map"].as_object() else {
-                eprintln!("[piper] onnx.json 缺 phoneme_id_map");
+                tracing::warn!("onnx.json 缺 phoneme_id_map");
                 return None;
             };
             let mut map = HashMap::new();
@@ -204,7 +204,9 @@ impl PiperTts {
         if let Some(inner) = guard.as_mut() {
             // 空跑一小段，确保推理路径与内存分配就绪
             let _ = run_once(inner, "好");
-            self.load_ms.store(t0.elapsed().as_millis() as u64, Ordering::Relaxed);
+            let ms = t0.elapsed().as_millis() as u64;
+            self.load_ms.store(ms, Ordering::Relaxed);
+            tracing::info!(elapsed_ms = ms, "Piper 离线神经语音就绪");
         }
     }
 
