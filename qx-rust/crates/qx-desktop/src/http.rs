@@ -5,7 +5,6 @@
 //! Python 后端被替换成：qx-core 的知识库路由 + Ollama 客户端 + 系统语音合成。
 
 use crate::asr::{append_pcm, Asr};
-use crate::edge_tts::EdgeTts;
 use crate::piper::PiperTts;
 use qx_core::{Guide, LlmClient, Message, NoLlm, OllamaClient, Theme};
 use serde_json::{Value, json};
@@ -198,10 +197,9 @@ pub struct AppState {
     /// 供 /api/stats 展示的后端类型与模型名。
     llm_backend: String,
     llm_model: String,
-    /// 离线神经语音（Piper VITS，原版甜美音色），在线合成不可用时的后备。
+    /// 离线神经语音（Piper VITS，sherpa-onnx 驱动，zh_CN-huayan-medium），
+    /// 所有语音合成均使用此本地 ONNX 模型，不再调用云端 Edge TTS。
     pub piper: Arc<PiperTts>,
-    /// 运行时在线「小伊」语音（纯 Rust，用于 LLM 动态回答，使音色与预置讲解词一致）。
-    pub edge: Arc<EdgeTts>,
     pub tts_cache: PathBuf,
     /// 离线语音识别引擎（whisper.cpp，模型常驻）。不可用时 /api/stats 会如实上报。
     pub asr: Arc<Asr>,
@@ -252,6 +250,14 @@ impl AppState {
         prune_tts_cache(&tts_cache, &protected_voices);
         // 神经语音：ORT 会话 + huayan 模型在后台线程预加载，不拖慢开窗；
         // 预热后再空跑一句短文本，顺手得到真实的「TTS 实时率」指标。
+        //
+        // 如果桌面上存在用户指定的 zh_CN-huayan-medium.onnx，优先使用它；
+        // 否则回退到 bundle 内的 tts/zh_CN-huayan-medium.onnx。
+        let desktop_onnx = Path::new(r"C:\Users\Administrator\Desktop\zh_CN-huayan-medium.onnx");
+        if desktop_onnx.exists() {
+            unsafe { std::env::set_var("QX_TTS_MODEL", desktop_onnx) };
+            tracing::info!(model = %desktop_onnx.display(), "使用桌面指定的 ONNX TTS 模型");
+        }
         let piper = Arc::new(PiperTts::new(root.join("tts")));
         {
             let p = Arc::clone(&piper);
@@ -282,7 +288,6 @@ impl AppState {
             llm_backend,
             llm_model,
             piper,
-            edge: Arc::new(EdgeTts::new()),
             asr,
             tts_cache,
             requests: 0,
@@ -602,11 +607,9 @@ fn route(
             "asr_available": st.asr.available(),
             "requests": st.requests, "llm_requests": st.llm_requests,
             "tts_rtf": TTS_RTF_X100.load(Ordering::Relaxed) as f64 / 100.0,
-            "tts_edge": st.edge.status(),
             "tts_offline": st.piper.load_ms() > 0,
             // 赛前烘焙覆盖率与断网音色守卫状态，现场自检用
             "tts_cache_files": cache_audio_count(&st.tts_cache),
-            "tts_offline_strict": offline_strict_enabled(),
             "kb_exhibits": st.theme.exhibits.len(), "kb_answers": st.theme.kb_answers(),
             "theme": st.theme_id,
             "log_dir": crate::logging::dir().map(|p| p.display().to_string()).unwrap_or_default(),
@@ -724,17 +727,16 @@ fn handle_ask(
     // 只在取限流/计数器/共享句柄时短暂持锁；LLM 生成与语音合成全程无锁，
     // 否则一次慢提问会把 stats 轮询、静态资源、其他请求全部卡在锁上，
     // 用户看到的就是「整个界面跟着一起卡」。
-    let (guide, piper, edge, tts_cache, wait) = {
+    let (guide, piper, tts_cache, wait) = {
         let mut st = state.lock().unwrap();
         let wait = st.rate_check(rate_key);
         if wait.is_some() {
-            (None, None, None, None, wait)
+            (None, None, None, wait)
         } else {
             st.requests += 1;
             (
                 Some(Arc::clone(&st.guide)),
                 Some(Arc::clone(&st.piper)),
-                Some(Arc::clone(&st.edge)),
                 Some(st.tts_cache.clone()),
                 None,
             )
@@ -753,7 +755,7 @@ fn handle_ask(
             &extra,
         );
     }
-    let (Some(guide), Some(piper), Some(edge), Some(tts_cache)) = (guide, piper, edge, tts_cache)
+    let (Some(guide), Some(piper), Some(tts_cache)) = (guide, piper, tts_cache)
     else {
         tracing::error!("问答状态不完整（内部错误）");
         return json_response(r, 500, &json!({"error": "内部状态不可用"}).to_string());
@@ -764,8 +766,7 @@ fn handle_ask(
     // 接口改版、无 curl）静默落回下面原有链路，由知识库/模型照旧说「查不到」。
     if images.is_empty() {
         if let Some(reply) = crate::online::answer(&text) {
-            let (wav, duration, visemes) =
-                synthesize(&piper, &tts_cache, Some(&*edge), &reply);
+            let (wav, duration, visemes) = synthesize(&piper, &tts_cache, &reply);
             let name = format!("{}.wav", tts_key(&reply));
             let (audio_name, audio) = audio_payload(&tts_cache, &name, &wav);
             let out = json!({
@@ -800,7 +801,7 @@ fn handle_ask(
     if answer.action == "chat" && guide.llm_available() {
         state.lock().unwrap().llm_requests += 1;
     }
-    let (wav, duration, visemes) = synthesize(&piper, &tts_cache, Some(&*edge), &answer.reply);
+    let (wav, duration, visemes) = synthesize(&piper, &tts_cache, &answer.reply);
     let name = format!("{}.wav", tts_key(&answer.reply));
     let (audio_name, audio) = audio_payload(&tts_cache, &name, &wav);
     tracing::info!(
@@ -892,10 +893,10 @@ fn list_themes(state: &Arc<Mutex<AppState>>) -> Value {
 // ───────────────────────── 语音（无 Python） ─────────────────────────
 
 pub(crate) fn tts_key(text: &str) -> String {
-    // v8：讲解员换成 Q 版吉祥物，配套语音改为标准普通话卡通活泼女声
-    // （zh-CN-XiaoyiNeural）。音色变化必须升版本让旧缓存失效，否则现场会
-    // 继续命中 v7 的成熟播报女声，换了模型却听不出变化。
-    format!("{:016x}", fnv1a(&format!("v8{text}")))
+    // v9-huayan：讲解员语音换成 Piper zh_CN-huayan-medium 离线中文女声，
+    // 不再使用 Edge/WinRT 小伊。缓存键必须变更，否则旧缓存（v8 小伊 mp3）
+    // 会被误命中，现场听到的音色不一致。
+    format!("{:016x}", fnv1a(&format!("v9-huayan{text}")))
 }
 
 /// 决定音频走内联 base64 还是 `/api/audio/<name>` 文件。
@@ -914,25 +915,7 @@ fn audio_payload(tts_cache: &Path, name: &str, wav: &[u8]) -> (String, String) {
 /// 以百分之一为单位存整型，供 /api/stats 展示「TTS 实时率」。
 static TTS_RTF_X100: AtomicU64 = AtomicU64::new(0);
 
-/// `QX_TTS_OFFLINE_STRICT=1`：断网且缓存未命中时，宁可只显示文字也不换发音人。
-/// 默认关闭，保持旧行为（本地 Piper 仍有声音）。比赛现场建议开启。
-fn offline_strict_enabled() -> bool {
-    matches!(
-        std::env::var("QX_TTS_OFFLINE_STRICT")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "on" | "true" | "yes"
-    )
-}
 
-/// 纯函数：只有「开启严格模式」且「在线小伊确实不可用」时才禁止回退。
-/// `edge_offline = None` 表示根本没有在线客户端，按不可用处理。
-/// 在线合成临时失败也会进入冷却期，此时同样视为不可用。
-fn keep_xiaoyi_only(strict: bool, edge_offline: Option<bool>) -> bool {
-    strict && edge_offline.unwrap_or(true)
-}
 
 /// 磁盘上已有的离线语音条数，供 /api/stats 核对赛前烘焙覆盖率。
 fn cache_audio_count(dir: &Path) -> usize {
@@ -983,22 +966,13 @@ fn prune_tts_cache(dir: &Path, protected: &[String]) {
     tracing::debug!(removed = overflow, "运行时语音缓存已按 LRU 清理");
 }
 
-/// 优先磁盘缓存；未命中按三级合成：在线小伊（保持音色统一）→ 本地 VITS 神经语音
-/// （sherpa-onnx，跨平台）；彻底不可用时写入同长度静音 wav，
-/// 保证前端 decodeAudioData 不失败、不弹「语音合成失败」，字幕/口型/镜头照常工作。
+/// 优先磁盘缓存；未命中按本地 ONNX（zh_CN-huayan-medium，sherpa-onnx VITS）合成。
+/// 彻底不可用时写入同长度静音 wav，保证前端 decodeAudioData 不失败、
+/// 不弹「语音合成失败」，字幕/口型/镜头照常工作。
 ///
-/// 在线合成的结果是 mp3（Edge 端点只给 48 kbps CBR mp3），WebView 原生可解，
-/// 因此不引入解码依赖；缓存文件名沿用 `.wav`，由 wav_duration / 音频路由按魔数区分。
-///
-/// 严格离线模式：在线小伊不可用且缓存未命中时**不落盘静音缓存**，直接返回静音
-/// 音频 + 完整文字。这样联网恢复后同一句话会重新合成为小伊，而不会被永久
-/// 缓存成静音；同时现场绝不会突然冒出华艳这个第二发音人。
-fn synthesize(
-    piper: &PiperTts,
-    tts_cache: &Path,
-    edge: Option<&EdgeTts>,
-    text: &str,
-) -> (Vec<u8>, f64, Vec<Value>) {
+/// 所有语音合成均使用本地 ONNX 模型，不再调用云端 Edge TTS，
+/// 从而实现“在线和离线统一为 zh_CN-huayan-medium 同一种声音”。
+fn synthesize(piper: &PiperTts, tts_cache: &Path, text: &str) -> (Vec<u8>, f64, Vec<Value>) {
     let hex = tts_key(text);
     let name = format!("{hex}.wav");
     let path = tts_cache.join(&name);
@@ -1006,51 +980,28 @@ fn synthesize(
     if path.exists() {
         tracing::debug!(chars = text.chars().count(), "TTS 命中磁盘缓存");
     } else {
-        // ① 运行时在线小伊：与预置讲解词同一发音人。结果立刻落盘，
-        //    同一句话第二次秒播、之后即使断网也仍命中缓存。
-        let edge_ok = edge
-            .and_then(|e| e.synth(text))
-            .map(|bytes| fs::write(&path, &bytes).is_ok())
-            .unwrap_or(false);
-        if !edge_ok {
-            // ② 本地 VITS 神经语音（Piper huayan，sherpa-onnx 驱动）。
-            let strict = keep_xiaoyi_only(
-                offline_strict_enabled(),
-                edge.map(|e| e.is_offline()),
-            );
-            if strict {
-                // 严格模式：在线小伊不可用就不换发音人，只显示文字。
-                tracing::warn!(
+        // 本地 VITS 神经语音（Piper huayan，sherpa-onnx 驱动）。
+        let t0 = Instant::now();
+        if let Some(wav) = piper.synth(text) {
+            let _ = fs::write(&path, &wav);
+            let dur = wav_duration(&wav);
+            if dur > 0.2 {
+                let rtf = (t0.elapsed().as_secs_f64() / dur * 100.0) as u64;
+                TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
+                tracing::debug!(
                     chars = text.chars().count(),
-                    "严格离线模式且小伊不可用，返回静音音频（仅显示文字）"
+                    rtf = %format!("{:.2}", rtf as f64 / 100.0),
+                    "VITS 离线合成完成（zh_CN-huayan-medium）"
                 );
-                let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
-                inline = Some(silent_wav(dur));
-            } else {
-                let t0 = Instant::now();
-                if let Some(wav) = piper.synth(text) {
-                    let _ = fs::write(&path, &wav);
-                    let dur = wav_duration(&wav);
-                    if dur > 0.2 {
-                        let rtf = (t0.elapsed().as_secs_f64() / dur * 100.0) as u64;
-                        TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
-                        tracing::debug!(
-                            chars = text.chars().count(),
-                            rtf = %format!("{:.2}", rtf as f64 / 100.0),
-                            "VITS 离线合成完成"
-                        );
-                    }
-                } else {
-                    // 在线小伊与本地 VITS 都不可用：宁可只显示文字也不换音色。
-                    // 不落盘静音缓存，联网恢复后同一句话会重新合成为小伊。
-                    tracing::warn!(
-                        chars = text.chars().count(),
-                        "在线小伊 / 本地 VITS 均不可用，返回静音音频"
-                    );
-                    let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
-                    inline = Some(silent_wav(dur));
-                }
             }
+        } else {
+            // 本地 ONNX 不可用：宁可只显示文字，不换发音人。
+            tracing::warn!(
+                chars = text.chars().count(),
+                "本地 ONNX TTS 不可用，返回静音音频（仅显示文字）"
+            );
+            let dur = (text.chars().count() as f64 * 0.18).clamp(1.2, 18.0);
+            inline = Some(silent_wav(dur));
         }
     }
     let wav = inline.unwrap_or_else(|| fs::read(&path).unwrap_or_else(|_| silent_wav(1.5)));

@@ -14,7 +14,6 @@
 mod asr;
 #[cfg(feature = "local-llm")]
 mod embedded_model;
-mod edge_tts;
 mod http;
 mod logging;
 mod online;
@@ -52,13 +51,28 @@ fn extract_bundle() -> PathBuf {
     // v6：46 条预生成语音换成卡通活泼女声、缓存键升 v8，强制释放新 tts-cache 音频
     // v7：吉祥物模式首帧即隐藏 VRM 人形网格 + 加载层等吉祥物就位再揭开，消除开场旧人物闪现
     // v8：左上角加品牌标志（assets/brand/*.svg），强制释放新页面避免旧 index.html 残留
-    // v10：语音链路换跨平台实现（whisper-rs 静态编译 + sherpa-onnx VITS），
-    //      不再释放 whisper DLL 与 onnxruntime DLL，换目录强制全量重解压。
     // v9：新增 asr/（whisper.dll + ggml*.dll + base 量化模型），换目录避免旧版残留 DLL 干扰
     let dir = std::env::temp_dir().join(BUNDLE_DIR_NAME);
+
+    // 清理旧版本残留目录（如 qx-guide-bundle-v8 等），避免旧 DLL 干扰新版
+    if let Ok(entries) = std::env::temp_dir().read_dir() {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("qx-guide-bundle-") && name != BUNDLE_DIR_NAME {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+
     let _ = fs::create_dir_all(&dir);
     let reader = std::io::Cursor::new(BUNDLE);
-    let mut archive = zip::ZipArchive::new(reader).expect("内嵌资产损坏");
+    let mut archive = match zip::ZipArchive::new(reader) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!(error = %e, "内嵌资产 zip 损坏，无法释放页面资产");
+            return dir;
+        }
+    };
     for i in 0..archive.len() {
         let mut f = match archive.by_index(i) {
             Ok(f) => f,

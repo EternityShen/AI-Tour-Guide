@@ -26,12 +26,13 @@
 //! 与 `wav_duration()` 都按魔数区分）。报告写到源码根 `voice_bake_report.txt`，
 //! 因为 GUI 子系统程序没有控制台，stdout 不可见。
 
-use crate::edge_tts::{is_mp3, synth_bake};
 use crate::http::{LlmConfig, build_llm, tts_key};
+use crate::piper::PiperTts;
 use qx_core::{Guide, Theme};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// `nlu.rs` 里硬编码、主题包 JSON 中不存在的降级话术。必须与源码逐字一致，
 /// `fixed_replies_still_exist_in_nlu` 会在编译测试里校验，防止文案改动后漂移。
@@ -104,7 +105,8 @@ fn copy_runtime_voices(out: &Path, existing: &mut HashSet<String>) -> (usize, us
             continue;
         }
         let Ok(data) = fs::read(e.path()) else { continue };
-        if !is_mp3(&data) {
+        // Piper 输出是 RIFF wav，只搬 wav，绝不混入 Edge TTS 的 mp3
+        if !data.starts_with(b"RIFF") {
             continue;
         }
         if fs::write(out.join(&name), &data).is_ok() {
@@ -187,6 +189,11 @@ pub fn run(source_root: &Path, cfg: &LlmConfig) -> String {
     if fs::create_dir_all(&out).is_err() {
         return format!("无法创建输出目录：{}", out.display());
     }
+
+    // 初始化 Piper 离线神经语音（zh_CN-huayan-medium 女声）。
+    let piper = Arc::new(PiperTts::new(source_root.join("tts")));
+    piper.preload();
+
     let mut existing: HashSet<String> = fs::read_dir(&out)
         .into_iter()
         .flatten()
@@ -216,16 +223,16 @@ pub fn run(source_root: &Path, cfg: &LlmConfig) -> String {
             skipped += 1;
             continue;
         }
-        match synth_bake(&text) {
-            Some(bytes) if is_mp3(&bytes) => {
-                if fs::write(out.join(&name), &bytes).is_ok() {
+        match piper.synth(&text) {
+            Some(wav) => {
+                if fs::write(out.join(&name), &wav).is_ok() {
                     existing.insert(name);
                     added += 1;
                 } else {
                     failed.push(format!("{tag}（写盘失败）"));
                 }
             }
-            _ => failed.push(format!("{tag}（在线合成失败）")),
+            None => failed.push(format!("{tag}（Piper 合成失败）")),
         }
     }
 
@@ -237,9 +244,9 @@ pub fn run(source_root: &Path, cfg: &LlmConfig) -> String {
         .count();
 
     let mut report = String::new();
-    report.push_str("离线小伊语音烘焙报告\n");
+    report.push_str("离线语音烘焙报告（Piper zh_CN-huayan-medium 女声）\n");
     report.push_str(&format!("输出目录：{}\n", out.display()));
-    report.push_str(&format!("运行时缓存：{}（扫描 {} 条，固化 {} 条小伊 mp3）\n", cache_path, scanned, copied));
+    report.push_str(&format!("运行时缓存：{}（扫描 {} 条，固化 {} 条 huayan wav）\n", cache_path, scanned, copied));
     report.push_str(&format!("候选文本：主题包 + {} 条硬编码话术 + {} 条演示问答\n", FIXED_REPLIES.len(), DEMO_QUESTIONS.len()));
     report.push_str(&format!("新增合成 {} 条 / 已有跳过 {} 条 / 失败 {} 条\n", added, skipped, failed.len()));
     for f in &failed {
@@ -275,16 +282,16 @@ mod tests {
         assert!(!is_cache_name("voice_manifest.json"));
     }
 
-    /// 搬运缓存必须只认 mp3：把 Piper 的 RIFF wav 固化进 exe 会让现场
-    /// 断网时命中「华艳」而不是小伊，属于最危险的假阳性。
+    /// 搬运缓存必须只认 wav：把 Edge TTS 的 mp3 固化进 exe 会让现场
+    /// 断网时命中错误的格式，属于最危险的假阳性。
     #[test]
-    fn mp3_magic_gates_runtime_cache_copy() {
+    fn wav_magic_gates_runtime_cache_copy() {
         let mut wav = b"RIFF".to_vec();
         wav.extend(vec![0u8; 4096]);
-        assert!(!is_mp3(&wav));
+        assert!(wav.starts_with(b"RIFF"));
         let mut mp3 = vec![0xff, 0xfb, 0x90, 0x00];
         mp3.extend(vec![0u8; 4096]);
-        assert!(is_mp3(&mp3));
+        assert!(!mp3.starts_with(b"RIFF"));
     }
 
     /// 手动联网烘焙入口（与用户侧的 `--bake-voices` 共用同一个 run()）。

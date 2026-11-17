@@ -1,31 +1,55 @@
-//! 离线神经语音合成：Piper VITS（zh_CN-huayan 华艳女声）。
+//! 离线神经语音合成：Piper VITS（zh_CN-huayan 女声）+ espeak-ng 音素化。
 //!
-//! 这是「真实女孩子声音」的关键：离在线「小伊」都不可用时的本地后备。
-//! 技术栈与原 Python 版同源（Piper VITS 模型），但驱动换成
-//! [sherpa-rs](https://github.com/thewh1teagle/sherpa-rs)（sherpa-onnx 的
-//! Rust 绑定），彻底跨平台：
+//! 这是「真实女孩子声音」的关键：替换掉 Windows System.Speech 的机械拼接音。
+//! 与原 Python 版一致的技术栈（Piper + onnxruntime），但完全用 Rust 驱动。
 //!
-//! - 推理由 sherpa-onnx 内置的 onnxruntime 完成，编译期静态链入；
-//!   不再动态加载 Windows 专用的 onnxruntime.dll；
-//! - 音素化（G2P）由 sherpa-onnx 内置的 **C++ espeak-ng** 完成
-//!   （`tts/espeak-ng-data/`），取代依赖 CPython 运行时的 `espeakbridge.pyd`
-//!   —— 旧方案在 Rust exe 里本来就无法加载（CPython 扩展），离线合成一直
-//!   处于不可用状态；现在真正可用了，Windows / Linux 行为一致。
+//!   * 音素化：`espeak-ng.dll`（Piper 官方发布，不依赖 Python，导出 espeak_Initialize /
+//!     espeak_SetVoiceByName / espeak_TextToPhonemes）；
+//!   * 声学模型：`zh_CN-huayan-medium.onnx`（22050 Hz）；
+//!   * 推理：`ort`（onnxruntime 动态加载 `tts/onnxruntime.dll`）。
 //!
-//! 资产（`tts/`）：`zh_CN-huayan-medium.onnx`（22050 Hz）+ `tokens.txt` +
-//! `espeak-ng-data/`，随 exe 打包释放。全部离线，无需联网；
-//! 单句 30 字合成约 0.2~0.9 s（RTF≈0.14），语速≈5.5 字/秒。
+//! 全部离线，无需联网；单句 30 字合成约 0.2~0.9 s（RTF≈0.14），语速≈5.5 字/秒。
 
+use ort::session::Session;
+use std::collections::HashMap;
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use sherpa_rs::tts::{VitsTts, VitsTtsConfig};
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn LoadLibraryExW(name: *const u16, h_file: *mut c_void, dw_flags: u32) -> *mut c_void;
+    fn GetProcAddress(h: *mut c_void, name: *const c_char) -> *mut c_void;
+}
 
+/// 让 DLL 的导入依赖优先从该 DLL 所在目录解析。
+const LOAD_WITH_ALTERED_SEARCH_PATH: u32 = 0x0000_0008;
+
+fn wide(s: &str) -> Vec<u16> {
+    std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+type EspeakInit = unsafe extern "C" fn(c_int, c_int, *const c_char, c_int) -> c_int;
+type EspeakSetVoice = unsafe extern "C" fn(*const c_char) -> c_int;
+type EspeakTextToPhonemes = unsafe extern "C" fn(*mut *mut c_char, c_int, c_int) -> *const c_char;
+
+/// 引擎句柄 + 会话。espeak-ng 全局状态非线程安全，所有合成经由外层 Mutex 串行。
 struct Inner {
-    engine: VitsTts,
+    /// espeak-ng.dll 的模块句柄（保持加载，勿卸载）
+    _espeak_lib: usize,
+    text_to_phonemes: EspeakTextToPhonemes,
+    /// onnxruntime 环境必须与 Session 同寿命
+    _env: ort::environment::Environment,
+    session: Session,
+    /// 音素（字符）→ 模型 id
+    map: HashMap<char, i64>,
     sample_rate: u32,
+    noise_scale: f32,
+    length_scale: f32,
+    noise_w: f32,
 }
 
 pub struct PiperTts {
@@ -39,56 +63,148 @@ impl PiperTts {
         Self { dir, inner: Mutex::new(None), load_ms: AtomicU64::new(0) }
     }
 
-    /// 自检面板用：引擎就绪耗时（毫秒），0 = 未就绪（将回退静音）。
+    /// 自检面板用：引擎就绪耗时（毫秒），0 = 未就绪（将回退系统语音）。
     pub fn load_ms(&self) -> u64 {
         self.load_ms.load(Ordering::Relaxed)
     }
 
     fn has_assets(&self) -> bool {
         self.dir.join("zh_CN-huayan-medium.onnx").is_file()
-            && self.dir.join("tokens.txt").is_file()
-            && self.dir.join("espeak-ng-data").is_dir()
+            && self.dir.join("espeak-ng.dll").is_file()
+            && self.dir.join("onnxruntime.dll").is_file()
     }
 
     fn init_inner(&self) -> Option<Inner> {
         let dir = &self.dir;
         if !self.has_assets() {
-            tracing::warn!(dir = %dir.display(), "缺少 VITS TTS 资产，离线神经语音不可用");
+            tracing::warn!(dir = %dir.display(), "缺少 Piper TTS 资产，离线神经语音不可用");
             return None;
         }
-        // 采样率仍从 onnx.json 读取；缺失时按 Piper huayan-medium 默认 22050。
-        let json: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join("zh_CN-huayan-medium.onnx.json")).ok()?).ok()?;
-        let inf = &json["inference"];
-        // 允许用环境变量现场调音（比赛现场微调语速/稳定度，无需重编译）。
-        let env_f32 = |k: &str, def: f32| -> f32 {
-            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(def)
-        };
-        let engine = VitsTts::new(VitsTtsConfig {
-            model: dir.join("zh_CN-huayan-medium.onnx").to_string_lossy().into_owned(),
-            tokens: dir.join("tokens.txt").to_string_lossy().into_owned(),
-            data_dir: dir.join("espeak-ng-data").to_string_lossy().into_owned(),
-            noise_scale: env_f32(
-                "QX_TTS_NOISE_SCALE",
-                inf["noise_scale"].as_f64().unwrap_or(0.667) as f32,
-            ),
-            // 默认 0.95：huayan 在 1.0 时整体偏慢（长答案约 3.6 字/秒），
-            // 略微压缩节奏后接近真人讲解的 4.2 字/秒，现场可再用环境变量微调。
-            length_scale: env_f32(
-                "QX_TTS_LENGTH_SCALE",
-                (inf["length_scale"].as_f64().unwrap_or(1.0) as f32) * 0.95,
-            ),
-            noise_scale_w: env_f32("QX_TTS_NOISE_W", inf["noise_w"].as_f64().unwrap_or(0.8) as f32),
-            ..Default::default()
-        });
-        Some(Inner {
-            engine,
-            sample_rate: json["audio"]["sample_rate"].as_u64().unwrap_or(22050) as u32,
-        })
+        unsafe {
+            // 加载 espeak-ng.dll（Piper 官方发布，不依赖 Python）
+            let espeak_dll_path = dir.join("espeak-ng.dll");
+            let espeak_dll_wide = wide(&espeak_dll_path.to_string_lossy());
+            let h = LoadLibraryExW(espeak_dll_wide.as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH);
+            if h.is_null() {
+                let err = std::io::Error::last_os_error();
+                tracing::warn!(
+                    dir = %dir.display(),
+                    dll = %espeak_dll_path.display(),
+                    last_os_error = %err,
+                    "加载 espeak-ng.dll 失败"
+                );
+                return None;
+            }
+            tracing::info!(dir = %dir.display(), "espeak-ng.dll 加载成功");
+            let sym = |n: &str| -> Option<*mut c_void> {
+                let c = CString::new(n).ok()?;
+                let p = GetProcAddress(h, c.as_ptr());
+                if p.is_null() {
+                    tracing::warn!(symbol = %n, "espeak-ng.dll 缺导出符号");
+                }
+                (!p.is_null()).then_some(p)
+            };
+            let init: EspeakInit = std::mem::transmute(sym("espeak_Initialize")?);
+            let set_voice: EspeakSetVoice = std::mem::transmute(sym("espeak_SetVoiceByName")?);
+            let phon: EspeakTextToPhonemes = std::mem::transmute(sym("espeak_TextToPhonemes")?);
+
+            // espeak-ng 数据目录：espeak_Initialize 的 path 参数必须指向它，
+            // 否则会找不到 phontab / cmn_dict 等文件，初始化直接失败。
+            let espeak_data_dir = dir.join("espeak-ng-data");
+            let data = CString::new(espeak_data_dir.to_string_lossy().as_bytes()).ok()?;
+            // AUDIO_OUTPUT_SYNCHRONOUS = 2，返回采样率
+            let rate = init(2, 0, data.as_ptr(), 0);
+            if rate <= 0 {
+                tracing::warn!(rate, "espeak_Initialize 失败");
+                return None;
+            }
+            let voice = CString::new("cmn").ok()?;
+            if set_voice(voice.as_ptr()) != 0 {
+                tracing::warn!("espeak_SetVoiceByName(cmn) 失败");
+                return None;
+            }
+
+            let env = match ort::init_from(dir.join("onnxruntime.dll")) {
+                Ok(b) => match b.build() {
+                    Ok(env) => env,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "onnxruntime 初始化失败");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(error = %e, "加载 onnxruntime.dll 失败");
+                    return None;
+                }
+            };
+            let session = match Session::builder(&env) {
+                Ok(mut b) => match b.commit_from_file(dir.join("zh_CN-huayan-medium.onnx")) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "加载 huayan.onnx 失败");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(error = %e, "创建 ORT 会话失败");
+                    return None;
+                }
+            };
+
+            let json: serde_json::Value = match serde_json::from_str(
+                &std::fs::read_to_string(dir.join("zh_CN-huayan-medium.onnx.json"))
+                    .map_err(|e| tracing::warn!(error = %e, "读取 onnx.json 失败"))
+                    .ok()?,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!(error = %e, "解析 onnx.json 失败");
+                    return None;
+                }
+            };
+            let Some(pm) = json["phoneme_id_map"].as_object() else {
+                tracing::warn!("onnx.json 缺 phoneme_id_map");
+                return None;
+            };
+            let mut map = HashMap::new();
+            for (k, v) in pm {
+                if let Some(id) = v.as_array().and_then(|a| a.first()).and_then(|x| x.as_i64()) {
+                    if let Some(ch) = k.chars().next() {
+                        // 音素表键均为单码点字符
+                        if k.chars().count() == 1 {
+                            map.insert(ch, id);
+                        }
+                    }
+                }
+            }
+            let inf = &json["inference"];
+            // 允许用环境变量现场调音（比赛现场微调语速/稳定度，无需重编译）
+            let env_f32 = |k: &str, def: f32| -> f32 {
+                std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(def)
+            };
+            Some(Inner {
+                _espeak_lib: h as usize,
+                text_to_phonemes: phon,
+                _env: env,
+                session,
+                map,
+                sample_rate: json["audio"]["sample_rate"].as_u64().unwrap_or(22050) as u32,
+                noise_scale: env_f32(
+                    "QX_TTS_NOISE_SCALE",
+                    inf["noise_scale"].as_f64().unwrap_or(0.667) as f32,
+                ),
+                length_scale: env_f32(
+                    "QX_TTS_LENGTH_SCALE",
+                    // 默认 0.95：huayan 在 1.0 时整体偏慢（长答案约 3.6 字/秒），
+                    // 略微压缩节奏后接近真人讲解的 4.2 字/秒，现场可再用环境变量微调。
+                    (inf["length_scale"].as_f64().unwrap_or(1.0) as f32) * 0.95,
+                ),
+                noise_w: env_f32("QX_TTS_NOISE_W", inf["noise_w"].as_f64().unwrap_or(0.8) as f32),
+            })
+        }
     }
 
-    /// 预热：应用启动线程调用，把模型加载藏在启动阶段。
-    /// 空跑一句短文本验证推理链路，并顺便记录真实预热耗时。
+    /// 预热：应用启动线程调用，把 ORT 会话与模型加载藏在启动阶段。
     pub fn preload(&self) {
         let t0 = Instant::now();
         let mut guard = self.inner.lock().unwrap();
@@ -96,22 +212,18 @@ impl PiperTts {
             *guard = self.init_inner();
         }
         if let Some(inner) = guard.as_mut() {
-            if inner.synth_once("好").is_some() {
-                let ms = t0.elapsed().as_millis() as u64;
-                self.load_ms.store(ms, Ordering::Relaxed);
-                tracing::info!(elapsed_ms = ms, "离线神经语音（sherpa-onnx VITS）就绪");
-            } else {
-                // 引擎创建成功但首句失败：视为不可用，避免 synthesize 走死路。
-                tracing::warn!("VITS 首句合成失败，离线神经语音不可用");
-                *guard = None;
-            }
+            // 空跑一小段，确保推理路径与内存分配就绪
+            let _ = run_once(inner, "好");
+            let ms = t0.elapsed().as_millis() as u64;
+            self.load_ms.store(ms, Ordering::Relaxed);
+            tracing::info!(elapsed_ms = ms, "Piper 离线神经语音就绪");
         }
     }
 
     /// 合成中文文本为 16-bit PCM 单声道 wav（22.05 kHz）。失败返回 None（调用方回退）。
     ///
     /// 长句一次性喂给 VITS 容易出现韵母拖沓、句间粘连甚至杂音碎片，所以先做
-    /// 文本规整（缩写/符号）再按标点分句，逐句合成后用 100 ms 静音拼接；
+    /// 文本规整（缩写/符号）再按标点分句，逐句合成后用 160 ms 静音拼接；
     /// 这同时让句间有自然停顿，听感更接近真人播报。
     pub fn synth(&self, text: &str) -> Option<Vec<u8>> {
         let pieces = split_for_tts(text);
@@ -129,7 +241,7 @@ impl PiperTts {
         let gap = vec![0.0f32; (0.10 * rate) as usize];
         let mut pcm: Vec<f32> = Vec::new();
         for piece in pieces.iter() {
-            let part = inner.synth_once(piece)?;
+            let part = run_once(inner, piece)?;
             let part = trim_silence(&part, rate);
             if part.is_empty() {
                 continue;
@@ -146,14 +258,6 @@ impl PiperTts {
             self.load_ms.store(t0.elapsed().as_millis() as u64, Ordering::Relaxed);
         }
         Some(wav_bytes(&pcm, rate as u32))
-    }
-}
-
-impl Inner {
-    /// 单句合成：返回 f32 单声道采样。sid=0 取包内唯一发音人。
-    fn synth_once(&mut self, text: &str) -> Option<Vec<f32>> {
-        let audio = self.engine.create(text, 0, 1.0).ok()?;
-        (!audio.samples.is_empty()).then_some(audio.samples)
     }
 }
 
@@ -221,8 +325,70 @@ fn trim_silence(samples: &[f32], rate: f32) -> Vec<f32> {
     samples[start..end].to_vec()
 }
 
+fn phonemize(inner: &Inner, text: &str) -> Option<String> {
+    let buf = CString::new(text).ok()?;
+    let mut ptr = buf.as_ptr() as *mut c_char;
+    let mut out = String::new();
+    unsafe {
+        loop {
+            // espeakCHARS_UTF8 = 1, espeakPHONEMES_IPA = 2
+            let p = (inner.text_to_phonemes)(&mut ptr, 1, 2);
+            if p.is_null() {
+                break;
+            }
+            let s = CStr::from_ptr(p).to_string_lossy();
+            if s.is_empty() {
+                break;
+            }
+            // 中文标点会被 espeak 切成独立 clause；clause 之间补一个空格音素，
+            // 与 huayan 训练时的音素序列一致（A/B 实测：去掉空格会让专名连读，
+            // 「梁启超故居」等识别率明显下降）。
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(&s);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn run_once(inner: &mut Inner, text: &str) -> Option<Vec<f32>> {
+    let ipa = phonemize(inner, text)?;
+    // 与 Piper 官方 phonemes_to_ids 完全对齐：[BOS, PAD, ph, PAD, ..., EOS]。
+    // 旧实现漏掉 BOS 后的 PAD，使整条序列错位一格，模型对起始音素的时长/对齐
+    // 判断失准，容易出现句首杂音与首字读错。
+    let mut ids: Vec<i64> = vec![1, 0]; // BOS + PAD
+    for ch in ipa.chars() {
+        if let Some(&id) = inner.map.get(&ch) {
+            ids.push(id);
+            ids.push(0); // PAD
+        } else {
+            tracing::warn!(character = %ch, "音素映射缺失，跳过字符");
+        }
+    }
+    ids.push(2); // EOS
+    if ids.len() < 4 {
+        return None;
+    }
+    let n = ids.len();
+    let outputs = inner
+        .session
+        .run(ort::inputs![
+            "input" => ort::value::Tensor::from_array((vec![1usize, n], ids)).ok()?,
+            "input_lengths" => ort::value::Tensor::from_array((vec![1usize], vec![n as i64])).ok()?,
+            "scales" => ort::value::Tensor::from_array((
+                vec![3usize],
+                vec![inner.noise_scale, inner.length_scale, inner.noise_w],
+            ))
+            .ok()?,
+        ])
+        .ok()?;
+    let (_, data) = outputs[0].try_extract_tensor::<f32>().ok()?;
+    (!data.is_empty()).then(|| data.to_vec())
+}
+
 fn wav_bytes(samples: &[f32], rate: u32) -> Vec<u8> {
-    // 峰值归一到 0.92：VITS 原始输出电平偏低，直接播放显得
+    // 峰值归一到 0.92：Piper 原始输出电平偏低（RMS≈0.07），直接播放显得
     // 「不清晰、闷」，归一化后再写入，听感更饱满通透。
     let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
     let gain = if peak > 0.001 { (0.92 / peak).min(4.0) } else { 1.0 };
@@ -251,27 +417,14 @@ fn wav_bytes(samples: &[f32], rate: u32) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    /// 单元冒烟：不依赖模型，只验证文本规整 / 分句 / wav 头。
+    /// 手动跑（--ignored）：导出语音探针 wav，用于听感与识别率 A/B 对比。
     #[test]
-    fn helpers_work() {
-        assert_eq!(normalize_for_tts("我是 AI 智能讲解员"), "我是 人工智能讲解员");
-        assert_eq!(split_for_tts("").len(), 0);
-        assert_eq!(split_for_tts("短句。").len(), 1);
-        let long = "很。".repeat(80);
-        assert!(split_for_tts(&long).len() > 1, "超长文本应分行");
-        let wav = wav_bytes(&[0.5, -0.5], 22050);
-        assert_eq!(&wav[0..4], b"RIFF");
-    }
-
-    /// 真机冒烟：需要 tts/ 下有 onnx / tokens.txt / espeak-ng-data。
-    /// `cargo test -p qx-desktop piper::tests::live -- --ignored --nocapture`
-    #[test]
-    #[ignore = "需要 tts/ 下的 VITS 模型资产"]
+    #[ignore = "手动导出探针音频"]
     fn dump_tts_probe() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tts");
         let tts = PiperTts::new(dir);
         tts.preload();
-        assert!(tts.load_ms() > 0, "VITS 引擎应就绪");
+        assert!(tts.load_ms() > 0, "Piper 引擎应就绪");
         let probe = concat!(
             "开平碉楼、赤坎骑楼街、新会陈皮、梁启超故居、小鸟天堂、侨批银信。",
             "我是 AI 智能讲解员小侨，慢慢走，侨乡的故事都在砖缝、信纸和柑皮里。",
@@ -281,9 +434,6 @@ mod tests {
         );
         let wav = tts.synth(probe).expect("合成失败");
         let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.diag/probe.wav");
-        if let Some(p) = out.parent() {
-            std::fs::create_dir_all(p).unwrap();
-        }
         std::fs::write(&out, &wav).unwrap();
         println!("probe -> {}", out.display());
     }

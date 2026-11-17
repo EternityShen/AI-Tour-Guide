@@ -5,8 +5,8 @@
     "file": "183f4d43990314cd.wav",
     "seconds": 14.4,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "realtime",
@@ -14,8 +14,8 @@
     "file": "5b5ff2911de05849.wav",
     "seconds": 12.26,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "route",
@@ -23,8 +23,8 @@
     "file": "b77da3c4da33fc8a.wav",
     "seconds": 13.42,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "fallback",
@@ -32,8 +32,8 @@
     "file": "5d3bd7fe4b70dca8.wav",
     "seconds": 6.89,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/brief",
@@ -41,8 +41,8 @@
     "file": "1260d6410d31a32d.wav",
     "seconds": 7.1,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/script",
@@ -50,8 +50,8 @@
     "file": "3667add4cea2d173.wav",
     "seconds": 29.57,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/deep",
@@ -59,8 +59,8 @@
     "file": "785a75de40acb808.wav",
     "seconds": 23.66,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/faq0",
@@ -68,8 +68,8 @@
     "file": "b748e26541009101.wav",
     "seconds": 14.11,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/faq1",
@@ -77,8 +77,8 @@
     "file": "77efc40061e690c1.wav",
     "seconds": 10.97,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "diaolou/faq2",
@@ -86,8 +86,8 @@
     "file": "7b33ae7e4b79666f.wav",
     "seconds": 8.06,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/brief",
@@ -95,8 +95,8 @@
     "file": "5558ebd1696ee987.wav",
     "seconds": 5.42,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/script",
@@ -104,8 +104,8 @@
     "file": "6f26e71dd71f1858.wav",
     "seconds": 20.06,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/deep",
@@ -113,8 +113,8 @@
     "file": "8f7296d00ec637d6.wav",
     "seconds": 20.38,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/faq0",
@@ -122,8 +122,8 @@
     "file": "cb5ffbdabf000e36.wav",
     "seconds": 10.32,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/faq1",
@@ -131,8 +131,8 @@
     "file": "606b78bf66788201.wav",
     "seconds": 7.8,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chikan/faq2",
@@ -140,8 +140,8 @@
     "file": "596dff027dfd74d2.wav",
     "seconds": 4.75,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/brief",
@@ -149,8 +149,8 @@
     "file": "0b31e8d9ff4b07b8.wav",
     "seconds": 5.18,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/script",
@@ -158,8 +158,8 @@
     "file": "ca669881102bd992.wav",
     "seconds": 20.18,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/deep",
@@ -167,8 +167,8 @@
     "file": "eb6e4a964260f432.wav",
     "seconds": 19.49,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/faq0",
@@ -176,8 +176,8 @@
     "file": "b61bbb0d6229380d.wav",
     "seconds": 5.4,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/faq1",
@@ -185,8 +185,8 @@
     "file": "6210f825d6d0133c.wav",
     "seconds": 8.52,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "liang/faq2",
@@ -194,8 +194,8 @@
     "file": "ed1d9e875c12a26d.wav",
     "seconds": 5.81,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/brief",
@@ -203,8 +203,8 @@
     "file": "a320b3d469634e4d.wav",
     "seconds": 5.69,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/script",
@@ -212,8 +212,8 @@
     "file": "488ff7e9c1cab4a3.wav",
     "seconds": 23.66,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/deep",
@@ -221,8 +221,8 @@
     "file": "8350aba5c282f133.wav",
     "seconds": 22.44,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/faq0",
@@ -230,8 +230,8 @@
     "file": "391b90c9e95379e6.wav",
     "seconds": 15.19,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/faq1",
@@ -239,8 +239,8 @@
     "file": "4e1bfa1581c7f7e9.wav",
     "seconds": 11.54,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chenpi/faq2",
@@ -248,8 +248,8 @@
     "file": "50f3d7adf8e24d72.wav",
     "seconds": 6.91,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/brief",
@@ -257,8 +257,8 @@
     "file": "6a4bede6d043dea5.wav",
     "seconds": 6.82,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/script",
@@ -266,8 +266,8 @@
     "file": "6c068387ad8f40fb.wav",
     "seconds": 20.14,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/deep",
@@ -275,8 +275,8 @@
     "file": "0c9497e53ca013a5.wav",
     "seconds": 20.5,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/faq0",
@@ -284,8 +284,8 @@
     "file": "4ba3e5d4275090d7.wav",
     "seconds": 11.54,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/faq1",
@@ -293,8 +293,8 @@
     "file": "a15ba32fa154a63f.wav",
     "seconds": 7.25,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "qiaopi/faq2",
@@ -302,8 +302,8 @@
     "file": "5e15e217e49cf5b2.wav",
     "seconds": 8.4,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/brief",
@@ -311,8 +311,8 @@
     "file": "ada3250e146e3d92.wav",
     "seconds": 5.93,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/script",
@@ -320,8 +320,8 @@
     "file": "98592f3bfbb6bb37.wav",
     "seconds": 18.86,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/deep",
@@ -329,8 +329,8 @@
     "file": "7a685db7811fbde4.wav",
     "seconds": 19.08,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/faq0",
@@ -338,8 +338,8 @@
     "file": "9201738719975fae.wav",
     "seconds": 9.7,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/faq1",
@@ -347,8 +347,8 @@
     "file": "429e0d43e543965d.wav",
     "seconds": 6.36,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "bird/faq2",
@@ -356,8 +356,8 @@
     "file": "e1375b23677c1a94.wav",
     "seconds": 6.05,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat0",
@@ -365,8 +365,8 @@
     "file": "ca99265ece76251f.wav",
     "seconds": 15.36,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat1",
@@ -374,8 +374,8 @@
     "file": "8383ad2afcd10a04.wav",
     "seconds": 5.69,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat2",
@@ -383,8 +383,8 @@
     "file": "8ce868c35ef51eb3.wav",
     "seconds": 4.99,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat3",
@@ -392,8 +392,8 @@
     "file": "74cae77537c34f62.wav",
     "seconds": 4.3,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat4",
@@ -401,8 +401,8 @@
     "file": "124c9c05ef29bb15.wav",
     "seconds": 14.33,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   },
   {
     "tag": "chitchat5",
@@ -410,7 +410,7 @@
     "file": "9ec0a39e40b87fab.wav",
     "seconds": 9.86,
     "cached": false,
-    "voice": "zh-CN-XiaoyiNeural",
-    "rate": "+10%"
+    "voice": "zh_CN-huayan-medium",
+    
   }
 ]
