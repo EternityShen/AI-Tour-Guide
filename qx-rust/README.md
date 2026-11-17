@@ -59,4 +59,4 @@ LLM 后端默认指向本地 Ollama（`qwen3.5:4b`），无 Ollama 时自动回�
 
 ## 日志
 
-按天滚动、保留 14 天，写入用户数据目录（Windows：`%LOCALAPPDATA%\QiaoxiangGuide\logs`；Linux：`~/.local/share/QiaoxiangGuide/logs`，可用 `QX_LOG_DIR` 覆盖）。详见 [LOGGING.md](LOGGING.md)。
+按天滚动、保留 14 天，写入用户数据目录（Windows：`%LOCALAPPDATA%\QiaoxiangGuide\logs`；Linux：`~/.local/share/QiaoxiangGuide/logs`，可用 `QX_LOG_DIR` 覆盖）。文件落盘由自研异步日志库 [shen_eternity_log](https://github.com/EternityShen/shen_eternity_log) 承担（后台 tokio 写入线程，逐条 flush）。详见 [LOGGING.md](LOGGING.md)。

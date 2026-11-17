@@ -78,4 +78,4 @@ $env:QX_LOG = "debug"
 ## 注意
 
 - 时间为 UTC（日志行尾的 `Z`）。
-- 首次构建会新增 `tracing-subscriber` / `tracing-appender` 依赖并更新 `Cargo.lock`，需要能访问 crates.io（或已配置镜像）。
+- 首次构建会新增 `tracing-subscriber` / `shen_eternity_log` 依赖并更新 `Cargo.lock`；`shen_eternity_log` 为自研日志库，经 git 依赖引用，需要能访问 GitHub（或已配置镜像）。

@@ -6091,9 +6091,10 @@ dependencies = [
  "qx-core",
  "serde",
  "serde_json",
+ "shen_eternity_log",
  "sherpa-rs",
+ "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber",
  "whisper-rs",
  "zip",
@@ -7123,6 +7124,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shen_eternity_log"
+version = "0.1.0"
+source = "git+https://github.com/EternityShen/shen_eternity_log.git#54459bf2b694e0cd3b5611c904af92ac76d3a863"
+dependencies = [
+ "chrono",
+ "tokio",
+]
+
+[[package]]
 name = "sherpa-rs"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7475,12 +7485,6 @@ dependencies = [
  "yazi",
  "zeno",
 ]
-
-[[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
 
 [[package]]
 name = "syn"
@@ -7836,9 +7840,23 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -8028,19 +8046,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-appender"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
-dependencies = [
- "crossbeam-channel",
- "symlink",
- "thiserror 2.0.21",
- "time",
- "tracing-subscriber",
 ]
 
 [[package]]

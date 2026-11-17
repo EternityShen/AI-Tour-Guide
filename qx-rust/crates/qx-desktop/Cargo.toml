@@ -23,7 +23,8 @@ gpui-webview = "0.9.0"
 wry = { version = "0.53.3", package = "lb-wry" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# 运行日志：tracing 打点 + 按天滚动文件 + QX_LOG 环境变量过滤。
+# 运行日志：tracing 打点 + QX_LOG 环境变量过滤；文件落盘由自研日志库承担
+# （后台线程 + tokio 异步写入，按天滚动在外层实现）。
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
   "env-filter",
@@ -32,7 +33,8 @@ tracing-subscriber = { version = "0.3", features = [
   "registry",
   "std",
 ] }
-tracing-appender = "0.2"
+shen_eternity_log = { git = "https://github.com/EternityShen/shen_eternity_log.git" }
+tokio = { version = "1", default-features = false, features = ["rt"] }
 zip = "0.6"
 # 运行时在线「小伊」语音：纯 Rust 同步 WebSocket 客户端，自带微软 2026 版
 # Sec-MS-GEC v2 签名（旧版签名会被 403 拒绝）。不依赖 Python，纯 Rust、跨平台。
