@@ -243,5 +243,5 @@ fn metrics_and_default_client() {
 
     let c = OllamaClient::default();
     assert_eq!(c.model, "qwen3.5:4b");
-    assert_eq!(c.host, "http://127.0.0.1:11434");
+    assert_eq!(c.host, "http://127.0.0.1:9931");
 }

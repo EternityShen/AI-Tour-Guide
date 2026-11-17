@@ -75,7 +75,7 @@ pub struct OllamaClient {
 impl Default for OllamaClient {
     fn default() -> Self {
         Self {
-            host: "http://127.0.0.1:11434".into(),
+            host: "http://127.0.0.1:9931".into(),
             model: "qwen3.5:4b".into(),
             timeout: Duration::from_secs(45),
         }
@@ -159,5 +159,104 @@ impl LlmClient for OllamaClient {
             .unwrap_or("")
             .trim()
             .to_string())
+    }
+}
+
+/// llama.cpp server（llama-server）客户端：走 OpenAI 兼容的
+/// `POST /v1/chat/completions` 端点。与 Ollama 不同，llama-server
+/// 不提供 `/api/chat`，所以需要单独实现。纯文本 GGUF，不支持视觉。
+#[derive(Debug, Clone)]
+pub struct LlamaServerClient {
+    pub host: String,
+    pub model: String,
+    pub timeout: Duration,
+}
+
+impl LlmClient for LlamaServerClient {
+    fn chat(
+        &self,
+        messages: &[Message],
+        temperature: f32,
+        num_predict: u32,
+    ) -> Result<String, String> {
+        let authority = self.authority();
+        let addr = authority
+            .to_socket_addrs()
+            .map_err(|e| format!("解析 llama-server 地址失败: {e}"))?
+            .next()
+            .ok_or_else(|| "llama-server 地址无解析结果".to_string())?;
+
+        let mut body_map = serde_json::Map::new();
+        body_map.insert("model".to_string(), serde_json::Value::String(self.model.clone()));
+        body_map.insert(
+            "messages".to_string(),
+            serde_json::to_value(messages).unwrap_or_default(),
+        );
+        body_map.insert("stream".to_string(), serde_json::Value::Bool(false));
+        body_map.insert(
+            "temperature".to_string(),
+            serde_json::to_value(temperature).unwrap_or_default(),
+        );
+        if num_predict > 0 {
+            body_map.insert(
+                "max_tokens".to_string(),
+                serde_json::to_value(num_predict).unwrap_or_default(),
+            );
+        }
+        let body = serde_json::Value::Object(body_map).to_string();
+
+        let mut stream = TcpStream::connect_timeout(&addr, self.timeout)
+            .map_err(|e| format!("连接 llama-server 失败: {e}"))?;
+        let started = std::time::Instant::now();
+        stream
+            .set_read_timeout(Some(self.timeout))
+            .and_then(|_| stream.set_write_timeout(Some(self.timeout)))
+            .map_err(|e| format!("设置超时失败: {e}"))?;
+
+        write!(
+            stream,
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: {authority}\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\n\
+             Connection: close\r\n\r\n{body}",
+            body.as_bytes().len()
+        )
+        .map_err(|e| format!("写入请求失败: {e}"))?;
+        stream.flush().map_err(|e| format!("刷新请求失败: {e}"))?;
+
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).map_err(|e| format!("读取响应失败: {e}"))?;
+        let text = String::from_utf8_lossy(&raw);
+        let split = text
+            .find("\r\n\r\n")
+            .ok_or_else(|| "llama-server 响应缺少 HTTP 头分隔".to_string())?;
+        let payload = &text[split + 4..];
+        let value: serde_json::Value =
+            serde_json::from_str(payload).map_err(|e| format!("解析响应失败: {e}"))?;
+        tracing::debug!(
+            host = %self.host,
+            model = %self.model,
+            messages = messages.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "llama-server 请求完成"
+        );
+        Ok(value["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string())
+    }
+
+    fn supports_vision(&self) -> bool {
+        false
+    }
+}
+
+impl LlamaServerClient {
+    fn authority(&self) -> String {
+        self.host
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .trim_end_matches('/')
+            .to_string()
     }
 }

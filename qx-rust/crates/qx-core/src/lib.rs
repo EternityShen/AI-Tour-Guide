@@ -14,7 +14,7 @@ pub mod nlu;
 pub mod theme;
 
 pub use camera::{CameraPath, V3};
-pub use llm::{LlmClient, Message, NoLlm, OllamaClient};
+pub use llm::{LlamaServerClient, LlmClient, Message, NoLlm, OllamaClient};
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use nlu::{Answer, Guide};
 pub use theme::{Theme, ThemeError};
