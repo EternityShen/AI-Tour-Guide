@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/qx-core", "crates/qx-desktop", "crates/embed-model"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+# qx-core：架构无关核心层（主题包 / 六级路由 / Ollama 客户端 / 相机路径 / 离线知识库）。
+# qx-desktop：主交付 —— 用 gpui-kit 原生窗口 + WebView（Windows WebView2 / Linux WebKitGTK）
+#           渲染【原封不动】的 web/ 页面（Three.js + VRM 数字人 + 聊天 UI），
+#           画面与网页版一模一样。web/ 与 themes/ 编译期打进 exe（build.rs 打包），
+#           运行时释放到临时目录，单个可执行文件自包含、不依赖 Python。
+#           目标平台：Windows + Linux（语音链路全部跨平台，无 Windows 专属依赖）。
+
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
+
+# release 用轻量优化，缩短依赖树的编译时间并减小 exe 体积
+[profile.release]
+opt-level = 1
+codegen-units = 16
+lto = false
+strip = true
+
