@@ -195,7 +195,9 @@ sherpa-rs 会用 CMake 源码编译 sherpa-onnx（含 onnxruntime），结果静
 
 ## 十一、许可证
 
-本项目采用 MIT 或 Apache-2.0 双许可（详见 `qx-rust/Cargo.toml` `[workspace.package]`）。
+本项目采用 [MIT License](LICENSE) 开源协议。
+
+第三方开源组件及素材的授权详见 [`LICENSES.md`](LICENSES.md)，其中部分组件（如 espeak-ng GPL-3.0、msedge-tts LGPL-3.0）遵循其各自原始许可证，项目本身代码按 MIT 分发。
 
 ---
 
