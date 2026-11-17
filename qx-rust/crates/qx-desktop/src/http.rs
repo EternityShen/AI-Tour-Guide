@@ -259,19 +259,16 @@ impl AppState {
             tracing::info!(model = %desktop_onnx.display(), "使用桌面指定的 ONNX TTS 模型");
         }
         let piper = Arc::new(PiperTts::new(root.join("tts")));
-        {
-            let p = Arc::clone(&piper);
-            std::thread::spawn(move || {
-                p.preload();
-                let t0 = Instant::now();
-                if let Some(wav) = p.synth("欢迎光临") {
-                    let d = wav_duration(&wav);
-                    if d > 0.2 {
-                        let rtf = (t0.elapsed().as_secs_f64() / d * 100.0) as u64;
-                        TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
-                    }
-                }
-            });
+        // 同步预加载 Piper 引擎，确保 AppState::new() 返回时语音已就绪，
+        // 直接双击 exe 也能立即使用离线语音，不必等待后台线程。
+        piper.preload();
+        let t0 = Instant::now();
+        if let Some(wav) = piper.synth("欢迎光临") {
+            let d = wav_duration(&wav);
+            if d > 0.2 {
+                let rtf = (t0.elapsed().as_secs_f64() / d * 100.0) as u64;
+                TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
+            }
         }
         // ASR / WinRT 也改后台加载：whisper base 0.3–0.6 s、WinRT 最坏 3 s，
         // 不该再让首屏等它们；就绪前 available()/ready() 如实返回 false。
