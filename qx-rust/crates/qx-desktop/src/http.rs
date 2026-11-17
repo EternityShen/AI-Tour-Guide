@@ -6,7 +6,7 @@
 
 use crate::asr::{append_pcm, Asr};
 use crate::piper::PiperTts;
-use qx_core::{Guide, LlmClient, Message, NoLlm, OllamaClient, Theme};
+use qx_core::{Guide, LlamaServerClient, LlmClient, Message, NoLlm, OllamaClient, Theme};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -34,8 +34,10 @@ const FRONTEND_LOG_MAX: usize = 16 * 1024;
 pub enum LlmBackend {
     /// 默认：走 Ollama 兼容协议（本地或远端 Ollama / llama-server 都行）。
     Auto,
-    /// 显式走 Ollama 兼容协议。
+    /// 显式走 Ollama 兼容协议（/api/chat）。
     Ollama,
+    /// 显式走 llama.cpp server（llama-server）OpenAI 兼容协议（/v1/chat/completions）。
+    LlamaServer,
     /// 本地 GGUF 模型（需 `--features local-llm` 构建，并把路径传给 --model）。
     Local,
     /// 完全关闭 LLM，自由回答回落到兜底话术（演示保底）。
@@ -55,7 +57,7 @@ impl Default for LlmBackend {
 #[derive(Clone)]
 pub struct LlmConfig {
     pub backend: LlmBackend,
-    /// Ollama / llama-server 兼容协议的地址（默认本机 11434）。
+    /// Ollama / llama-server 兼容协议的地址（默认本机 9931）。
     pub ollama_url: String,
     /// 模型名（默认 qwen3.5:4b，保持与旧行为一致；本地 GGUF 旁路时也用作展示名）。
     pub ollama_model: String,
@@ -89,6 +91,14 @@ pub fn build_llm(cfg: &LlmConfig) -> Arc<dyn LlmClient> {
             // 防御性兜底：即便有人手工构造了空配置，也不能让后端连到空地址。
             let d = OllamaClient::default();
             Arc::new(OllamaClient {
+                host: if cfg.ollama_url.trim().is_empty() { d.host } else { cfg.ollama_url.clone() },
+                model: if cfg.ollama_model.trim().is_empty() { d.model } else { cfg.ollama_model.clone() },
+                timeout: Duration::from_secs(45),
+            })
+        }
+        LlmBackend::LlamaServer => {
+            let d = OllamaClient::default(); // 只借用默认地址/模型作为兜底
+            Arc::new(LlamaServerClient {
                 host: if cfg.ollama_url.trim().is_empty() { d.host } else { cfg.ollama_url.clone() },
                 model: if cfg.ollama_model.trim().is_empty() { d.model } else { cfg.ollama_model.clone() },
                 timeout: Duration::from_secs(45),
@@ -139,7 +149,7 @@ pub fn build_llm(cfg: &LlmConfig) -> Arc<dyn LlmClient> {
                     let _ = path; // 默认构建未编译本地引擎，路径仅用于提示
                     tracing::warn!(
                         "指定了 --model 但未用 `--features local-llm` 构建，本地引擎未编译；回退到无 LLM。\
-                         立即自包含演示请用 llama-server 旁路：另开一个终端 `llama-server -m <模型> --port 11434`，\
+                         立即自包含演示请用 llama-server 旁路：另开一个终端 `llama-server -m <模型> --port 9931`，\
                          本程序保持默认 Ollama 后端即可（它兼容 llama-server 的 /api/chat）。"
                     );
                     Arc::new(NoLlm)
@@ -170,6 +180,14 @@ fn describe_llm(cfg: &LlmConfig) -> (String, String) {
         ),
         LlmBackend::Ollama | LlmBackend::Auto => (
             "ollama".into(),
+            if cfg.ollama_model.trim().is_empty() {
+                OllamaClient::default().model
+            } else {
+                cfg.ollama_model.clone()
+            },
+        ),
+        LlmBackend::LlamaServer => (
+            "llama-server".into(),
             if cfg.ollama_model.trim().is_empty() {
                 OllamaClient::default().model
             } else {
@@ -1380,7 +1398,7 @@ mod tests {
         let d = OllamaClient::default();
         assert_eq!(cfg.ollama_url, d.host);
         assert_eq!(cfg.ollama_model, "qwen3.5:4b");
-        assert!(cfg.ollama_url.contains("11434"), "默认端口必须是 11434");
+        assert!(cfg.ollama_url.contains("9931"), "默认端口必须是 9931");
         assert!(cfg.local_model.is_none());
 
         // 即便手工构造了空配置，展示名与客户端也必须被兜底，不能留空

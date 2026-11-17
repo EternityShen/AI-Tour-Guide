@@ -4,7 +4,7 @@ members = ["crates/qx-core", "crates/qx-desktop", "crates/embed-model"]
 
 [workspace.package]
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 # qx-core：架构无关核心层（主题包 / 六级路由 / Ollama 客户端 / 相机路径 / 离线知识库）。
 # qx-desktop：主交付 —— 用 gpui-kit 原生窗口 + WebView（Windows WebView2 / Linux WebKitGTK）
