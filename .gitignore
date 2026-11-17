@@ -18,8 +18,8 @@ build/
 
 # Rust desktop shell
 desktop/target/
-rust-rewrite/target/
-rust-rewrite/tts-cache/
+qx-rust/target/
+qx-rust/tts-cache/
 /QiaoxiangGuide.exe
 /QiaoxiangGuide-Local.exe
 /QiaoxiangGuide.exe.bak-*
@@ -31,7 +31,7 @@ rust-rewrite/tts-cache/
 .diag/
 
 # Redundant self-archive of the project
-rust-rewrite/rust-rewrite.rar
+qx-rust/rust-rewrite.rar
 
 # Environment
 .env
@@ -56,8 +56,8 @@ models/*.onnx.data
 server/models/
 tools/cloudflared.exe
 # Local embedded VL model + optional large ASR model (built into exe, not source)
-rust-rewrite/models/
-rust-rewrite/asr/ggml-small-q5_1.bin
+qx-rust/models/
+qx-rust/asr/ggml-small-q5_1.bin
 
 # slidep tool logs (throwaway)
 .slidep/
@@ -75,7 +75,7 @@ server_err.log
 # Audio cache (generated at runtime)
 server/audio_cache/
 server/cache/
-rust-rewrite/voice_bake_report.txt
+qx-rust/voice_bake_report.txt
 
 # Runtime-generated public tunnel URL
 PUBLIC-URL.txt

@@ -1,0 +1,5 @@
+# sherpa-rs 的 `static` feature 在 Linux 上要求非 PIC 静态链接
+# （libsherpa-onnx 静态库按非 PIC 编译）。只对 Linux 目标生效，
+# 不影响 Windows（MSVC）构建。Windows 上默认已是静态 CRT + 静态链接。
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "relocation-model=dynamic-no-pic"]
