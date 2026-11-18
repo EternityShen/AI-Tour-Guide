@@ -75,9 +75,13 @@ pub struct OllamaClient {
 impl Default for OllamaClient {
     fn default() -> Self {
         Self {
-            host: "http://127.0.0.1:9931".into(),
+            // Ollama 的标准端口是 11434（9931 是 llama-server 的端口，不是 Ollama 的）。
+            // 地址写错会连不上，所有自由问答与看图旁路都会静默退回兜底话术。
+            host: "http://127.0.0.1:11434".into(),
             model: "qwen3.5:4b".into(),
-            timeout: Duration::from_secs(45),
+            // 本地 4B 模型带思维链，生成一次可达 40~60s，读超时必须留足，否则
+            // 读响应被掐断，又退回「答不上来」。
+            timeout: Duration::from_secs(120),
         }
     }
 }

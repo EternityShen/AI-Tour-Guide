@@ -133,7 +133,7 @@ cargo run -p qx-desktop --features local-llm -- --model /path/to/model.gguf
 |------|------|--------|
 | `--bake-voices` | 赛前联网跑一次：把现场会说的每句话固化成语音并写报告文件 | — |
 | `--model <路径>` | 使用本地 GGUF 模型（需 `--features local-llm` 构建） | — |
-| `--ollama-url <URL>` | Ollama / llama-server 兼容协议地址 | `http://127.0.0.1:9931` |
+| `--ollama-url <URL>` | Ollama / llama-server 兼容协议地址 | `http://127.0.0.1:11434` |
 | `--ollama-model <名>` | 模型名 | `qwen3.5:4b` |
 | `--llm-backend <auto\|ollama\|llama\|local\|none>` | LLM 后端选择 | `auto` |
 

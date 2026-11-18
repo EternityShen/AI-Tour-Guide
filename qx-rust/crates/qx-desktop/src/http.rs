@@ -57,7 +57,7 @@ impl Default for LlmBackend {
 #[derive(Clone)]
 pub struct LlmConfig {
     pub backend: LlmBackend,
-    /// Ollama / llama-server 兼容协议的地址（默认本机 9931）。
+    /// Ollama / llama-server 兼容协议的地址（默认本机 11434，即 Ollama 标准端口）。
     pub ollama_url: String,
     /// 模型名（默认 qwen3.5:4b，保持与旧行为一致；本地 GGUF 旁路时也用作展示名）。
     pub ollama_model: String,
@@ -1517,7 +1517,7 @@ mod tests {
         let d = OllamaClient::default();
         assert_eq!(cfg.ollama_url, d.host);
         assert_eq!(cfg.ollama_model, "qwen3.5:4b");
-        assert!(cfg.ollama_url.contains("9931"), "默认端口必须是 9931");
+        assert!(cfg.ollama_url.contains("11434"), "默认端口必须是 Ollama 的标准端口 11434");
         assert!(cfg.local_model.is_none());
 
         // 即便手工构造了空配置，展示名与客户端也必须被兜底，不能留空

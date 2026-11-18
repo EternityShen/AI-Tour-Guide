@@ -19,17 +19,32 @@ use std::time::Duration;
 
 /// 从 `/api/tags` 的响应里挑一个带视觉的模型名。
 ///
-/// Ollama 的视觉模型命名没有统一后缀，实践上以 `vl` / `vision` / `llava` 为主，
-/// 这里按优先级匹配，挑不到就返回 None（宁可不启用，也不误用一个纯文本模型）。
+/// 优先按 `capabilities` 里是否含 `vision` 判定（新版 Ollama 的 `/api/tags`
+/// 会直接返回该字段，最可靠）；老版本 Ollama 没有 `capabilities` 时，退回按
+/// 名字关键字匹配（`vl` / `vision` / `llava` 等）。挑不到就返回 None（宁可不
+/// 启用，也不误用一个纯文本模型）。
 pub fn pick_vision_model(tags_json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(tags_json).ok()?;
     let models = v.get("models")?.as_array()?;
-    let mut names: Vec<String> = Vec::new();
+
+    // 1) 带 capabilities 字段：找第一个声明 vision 的模型。
     for m in models {
-        if let Some(n) = m.get("name").and_then(|x| x.as_str()) {
-            names.push(n.to_string());
+        let caps = m.get("capabilities").and_then(|c| c.as_array());
+        let has_vision = caps
+            .map(|caps| caps.iter().any(|c| c.as_str() == Some("vision")))
+            .unwrap_or(false);
+        if has_vision {
+            if let Some(n) = m.get("name").and_then(|x| x.as_str()) {
+                return Some(n.to_string());
+            }
         }
     }
+
+    // 2) 回退：老 Ollama 没有 capabilities，按名字关键字匹配。
+    let names: Vec<String> = models
+        .iter()
+        .filter_map(|m| m.get("name").and_then(|x| x.as_str()).map(|s| s.to_string()))
+        .collect();
     for key in ["vl", "vision", "llava", "minicpm-v", "moondream"] {
         if let Some(n) = names.iter().find(|n| n.to_lowercase().contains(key)) {
             return Some(n.clone());
@@ -195,6 +210,20 @@ mod tests {
     }
 
     #[test]
+    fn picks_model_by_capabilities() {
+        // 新版 Ollama 的 /api/tags 带 capabilities；模型名叫 qwen3.5:4b 但声明了
+        // vision，必须能按能力挑出来——否则「图片也无法识别」会一直复发。
+        let tags = r#"{"models":[
+            {"name":"qwen-local:latest","capabilities":["tools","thinking","completion","vision"]},
+            {"name":"qwen3.5:4b","capabilities":["tools","thinking","completion","vision"]}
+        ]}"#;
+        assert_eq!(pick_vision_model(tags).as_deref(), Some("qwen-local:latest"));
+        // capabilities 里没有 vision 的纯文本模型不能被误挑
+        let text_only = r#"{"models":[{"name":"qwen3.5:4b","capabilities":["tools","completion"]}]}"#;
+        assert_eq!(pick_vision_model(text_only), None);
+    }
+
+    #[test]
     fn routes_images_to_fallback() {
         let p_seen = Arc::new(Mutex::new(Vec::new()));
         let f_seen: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
@@ -244,6 +273,9 @@ mod tests {
     /// 用本地假服务器验证整套探测：**不依赖本机 Ollama 是否在跑**。
     /// 之所以要假服务器：Ollama 是 Go 写的，`/api/tags` 常以 chunked 返回，
     /// 且在本机会话里进程生命周期不受控，真机测试既不稳定也复现不了 chunked。
+    ///
+    /// 并行跑全套测试时，假服务器线程可能来不及在探测端的 900ms 读超时内
+    /// 响应（调度被重负载拖慢），因此探测带重试、服务器循环服务多次连接。
     #[test]
     fn probe_against_fake_ollama() {
         use std::io::{Read as _, Write as _};
@@ -252,23 +284,49 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let handle = std::thread::spawn(move || {
-            if let Ok((mut c, _)) = listener.accept() {
-                let mut buf = [0u8; 1024];
-                let _ = c.read(&mut buf);
-                let body = r#"{"models":[{"name":"qwen3.5:4b"},{"name":"qwen2.5vl:3b"}]}"#;
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
-                     Transfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
-                    body.len(),
-                    body
-                );
-                let _ = c.write_all(resp.as_bytes());
+            // 循环服务，配合客户端重试；空闲约 1 秒（50 × 20ms 无连接）即退出，
+            // 保证 join() 能返回——固定服务 N 次会在客户端提前成功时永远等不满。
+            listener.set_nonblocking(true).ok();
+            let mut idle = 0;
+            loop {
+                match listener.accept() {
+                    Ok((mut c, _)) => {
+                        idle = 0;
+                        let mut buf = [0u8; 1024];
+                        let _ = c.read(&mut buf);
+                        let body = r#"{"models":[{"name":"qwen3.5:4b"},{"name":"qwen2.5vl:3b"}]}"#;
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Transfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
+                            body.len(),
+                            body
+                        );
+                        let _ = c.write_all(resp.as_bytes());
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        idle += 1;
+                        if idle > 50 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    Err(_) => break,
+                }
             }
         });
 
-        let client = probe_vision(&format!("http://127.0.0.1:{port}")).expect("应探测到 VL 模型");
+        let host = format!("http://127.0.0.1:{port}");
+        let mut client = None;
+        for _ in 0..8 {
+            if let Some(c) = probe_vision(&host) {
+                client = Some(c);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+        let client = client.expect("应探测到 VL 模型");
         assert_eq!(client.model, "qwen2.5vl:3b");
-        assert_eq!(client.host, format!("http://127.0.0.1:{port}"));
+        assert_eq!(client.host, host);
         let _ = handle.join();
     }
 }

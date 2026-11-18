@@ -152,7 +152,7 @@ fn main() {
 
     // ── 解析 LLM 启动参数 ─────────────────────────────────────
     //   --model <GGUF路径>   使用本地 GGUF 模型（需 --features local-llm 构建）
-    //   --ollama-url <URL>   Ollama / llama-server 兼容协议地址（默认 http://127.0.0.1:9931）
+    //   --ollama-url <URL>   Ollama / llama-server 兼容协议地址（默认 http://127.0.0.1:11434）
     //   --ollama-model <名>  模型名（默认 qwen3.5:4b）
     //   --llm-backend <auto|ollama|llama|local|none>
     // 默认行为与旧版一致：走本机 Ollama，模型 qwen3.5:4b。
