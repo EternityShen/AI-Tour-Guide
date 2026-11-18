@@ -22,10 +22,11 @@ fn loads_and_validates_real_theme() {
 fn exhibit_and_kb_counts_match_python_stats() {
     let t = Theme::load(theme_path()).unwrap();
     assert_eq!(t.exhibits.len(), 6, "对应 /api/stats 的 kb_exhibits");
-    // kb_answers 口径 = sum(len(faq) + 2)：先按定义重算一遍，再钉住当前包的数量。
-    let expect: usize = t.exhibits.iter().map(|e| e.faq.len() + 2).sum();
-    assert_eq!(t.kb_answers(), expect, "kb_answers 口径应是 sum(len(faq)+2)");
-    assert_eq!(t.kb_answers(), 32, "对应 /api/stats 的 kb_answers（6 展项 × 2 + 20 条问答）");
+    // kb_answers 口径 = sum(len(faq) + 2) + 互动问答题数：先按定义重算一遍，再钉住当前包的数量。
+    let expect: usize =
+        t.exhibits.iter().map(|e| e.faq.len() + 2).sum::<usize>() + t.quiz.len();
+    assert_eq!(t.kb_answers(), expect, "kb_answers 口径应是 sum(len(faq)+2)+quiz 题数");
+    assert_eq!(t.kb_answers(), 44, "对应 /api/stats 的 kb_answers（6 展项 × 2 + 20 条问答 + 12 道互动题）");
     for e in &t.exhibits {
         assert!(e.faq.len() >= 3, "每个展品至少 3 条 FAQ: {}", e.id);
         assert!(!e.script.is_empty(), "{} 应有讲解词", e.id);

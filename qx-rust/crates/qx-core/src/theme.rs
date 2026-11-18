@@ -51,6 +51,27 @@ pub struct Faq {
     pub a: String,
 }
 
+/// 互动问答（quiz）的一道题。题面本身就是游客会原样复述的问题，
+/// 所以它也参与检索：答对后的点评 `right` 就是口语答案的来源。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Quiz {
+    /// 对应展项的 `name`
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub q: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub answer: usize,
+    #[serde(default)]
+    pub right: String,
+    #[serde(default)]
+    pub wrong: String,
+    #[serde(default)]
+    pub followup: String,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Exhibit {
     #[serde(default)]
@@ -130,6 +151,8 @@ pub struct Theme {
     pub exhibits: Vec<Exhibit>,
     #[serde(default)]
     pub chitchat: Vec<Chitchat>,
+    #[serde(default)]
+    pub quiz: Vec<Quiz>,
 }
 
 impl Theme {
@@ -168,8 +191,10 @@ impl Theme {
         self.exhibits.iter().find(|e| e.id == id)
     }
 
-    /// 对齐 `/api/stats` 的 `kb_answers` 口径：sum(len(faq) + 2)。
+    /// 对齐 `/api/stats` 的 `kb_answers` 口径：sum(len(faq) + 2)，再加上互动问答的题面。
+    /// 题目本身是一条能答的知识（游客常把题面原样复述给讲解员），漏算会让前端数字偏小。
     pub fn kb_answers(&self) -> usize {
-        self.exhibits.iter().map(|e| e.faq.len() + 2).sum()
+        self.exhibits.iter().map(|e| e.faq.len() + 2).sum::<usize>()
+            + self.quiz.iter().filter(|z| !z.q.is_empty()).count()
     }
 }

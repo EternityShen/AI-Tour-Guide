@@ -80,6 +80,46 @@ fn faq_question_without_exhibit_name_is_still_answered() {
 }
 
 #[test]
+fn quiz_question_without_exhibit_name_is_answered() {
+    // 现场复现的坑：「让小鸟天堂出了名的是哪位作家？」句子里没有「小鸟天堂」的别名，
+    // 旧路由会直接落到大模型/兜底。题面本身就是知识，必须命中小鸟天堂展项并给出巴金。
+    let g = guide();
+    let a = g.answer("让小鸟天堂出了名的是哪位作家？", None, false, None);
+    assert_eq!(a.action, "explain");
+    assert_eq!(a.exhibit.as_deref(), Some("bird"), "实际回复: {}", a.reply);
+    assert!(a.reply.contains("巴金"), "应点出巴金，实际: {}", a.reply);
+    assert!(a.reply.contains("鸟的天堂"), "应提到《鸟的天堂》，实际: {}", a.reply);
+}
+
+#[test]
+fn every_quiz_question_is_answered_from_kb() {
+    // 互动问答的题目会被游客原样念出来（题面里通常带展品名，但也常只复述题面），
+    // 题目不进检索就永远答不上。逐题验证：题面直接作答、落到所属展项、不落兜底。
+    let g = guide();
+    assert!(!g.theme.quiz.is_empty(), "主题包应带互动问答");
+    for q in &g.theme.quiz {
+        let expect_id = g
+            .theme
+            .exhibits
+            .iter()
+            .find(|e| e.name == q.label)
+            .expect("quiz.label 应能对应到展项 name")
+            .id
+            .clone();
+        let a = g.answer(&q.q, None, false, None);
+        assert_eq!(a.action, "explain", "互动问答题面: {}", q.q);
+        assert_eq!(
+            a.exhibit.as_deref(),
+            Some(expect_id.as_str()),
+            "题面 {} 未落到所属展项，实际: {}",
+            q.q,
+            a.reply
+        );
+        assert_ne!(a.reply, g.theme.fallback, "题面 {} 落到兜底", q.q);
+    }
+}
+
+#[test]
 fn route_and_greeting_intents() {
     let g = guide();
     assert_eq!(g.answer("参观路线", None, false, None).action, "route");

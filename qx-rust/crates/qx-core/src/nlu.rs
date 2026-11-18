@@ -9,7 +9,7 @@
 //! 带图视觉问答。这些不影响知识库主链路。
 
 use crate::llm::{LlmClient, Message, NoLlm};
-use crate::theme::{Exhibit, Theme};
+use crate::theme::{Exhibit, Quiz, Theme};
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -26,6 +26,20 @@ pub struct Answer {
     pub exhibit_name: Option<String>,
 }
 
+/// 互动问答题面在检索里的形态。
+#[derive(Debug, Clone)]
+struct QuizEntry {
+    /// 所属展项下标
+    ex: usize,
+    /// 题面原文
+    q: String,
+    /// 题面去掉标点，用于整句全等
+    norm: String,
+    tokens: HashSet<String>,
+    /// 口语答案（由 `right` 点评与正确选项拼成）
+    a: String,
+}
+
 pub struct Guide {
     pub theme: Theme,
     llm: Arc<dyn LlmClient>,
@@ -33,6 +47,10 @@ pub struct Guide {
     stop: HashSet<String>,
     ex_tokens: Vec<HashSet<String>>,
     faq_tokens: Vec<Vec<HashSet<String>>>,
+    /// 互动问答题面：按展项挂好，答题面与展品 FAQ 走同一套检索。
+    /// 题面是游客会原样复述的问题（「让小鸟天堂出了名的是哪位作家？」），
+    /// 不进知识库就永远只能落大模型/兜底，所以必须并进检索。
+    quiz: Vec<QuizEntry>,
     punct: Regex,
     realtime: Regex,
     focus_rules: Vec<(&'static str, Regex)>,
@@ -40,6 +58,38 @@ pub struct Guide {
     md: Regex,
     redirect_hint: Regex,
     redirect_topic: Regex,
+}
+
+/// 把互动问答点评里的口语判语（「答对了！」「没错，」「对，」）去掉，
+/// 只留真正讲事实的正文，作为口头答案。
+fn strip_verdict(s: &str) -> String {
+    let mut t = s.trim();
+    for verdict in ["答对了！", "答对了，", "没错，", "对，", "对,", "是的，"] {
+        if let Some(rest) = t.strip_prefix(verdict) {
+            t = rest.trim();
+            break;
+        }
+    }
+    t.to_string()
+}
+
+/// 互动问答的口语答案：优先用点评正文；问的是「谁 / 哪 / 多少」这类需要先给
+/// 明确答案的，把正确选项补在前面（题干「哪位作家」只补「巴金」）。
+fn quiz_answer(z: &Quiz) -> String {
+    let body = strip_verdict(&z.right);
+    let option = z.options.get(z.answer).map(|o| o.trim()).filter(|o| !o.is_empty());
+    if let Some(o) = option {
+        if !body.is_empty() && !body.contains(o) {
+            // 句中问「谁 / 哪 / 多少 / 什么时候」才需要先亮答案
+            if z.q.contains('谁') || z.q.contains('哪') || z.q.contains("多少") || z.q.contains("几") {
+                return format!("{o}，{body}");
+            }
+        }
+        if body.is_empty() {
+            return o.to_string();
+        }
+    }
+    body
 }
 
 fn rx(pattern: &str) -> Regex {
@@ -101,6 +151,7 @@ impl Guide {
             stop,
             ex_tokens: Vec::new(),
             faq_tokens: Vec::new(),
+            quiz: Vec::new(),
             punct,
             realtime,
             focus_rules,
@@ -123,6 +174,34 @@ impl Guide {
             }
             g.faq_tokens.push(faqs);
         }
+
+        // 互动问答题面并进检索：题面是游客会原样复述的问题（如
+        // 「让小鸟天堂出了名的是哪位作家？」），不挂进检索就只能落大模型/兜底。
+        let mut quiz: Vec<QuizEntry> = Vec::new();
+        for z in &g.theme.quiz {
+            let ex = g
+                .theme
+                .exhibits
+                .iter()
+                .position(|e| e.name == z.label || e.aliases.iter().any(|a| a == &z.label));
+            let Some(ex) = ex else { continue };
+            let q = z.q.trim();
+            if q.is_empty() {
+                continue;
+            }
+            let a = quiz_answer(z);
+            if a.is_empty() {
+                continue;
+            }
+            quiz.push(QuizEntry {
+                ex,
+                q: q.to_string(),
+                norm: g.punct.replace_all(q, "").to_string(),
+                tokens: g.tokenize(q),
+                a,
+            });
+        }
+        g.quiz = quiz;
         g
     }
 
@@ -181,6 +260,12 @@ impl Guide {
                 return Some(f.a.clone());
             }
         }
+        // 同展项的互动问答题面，题面也允许整句全等
+        for z in self.quiz.iter().filter(|z| z.ex == ex_idx) {
+            if z.norm == raw_q {
+                return Some(z.a.clone());
+            }
+        }
         let mut tokens = self.tokenize(text);
         for t in &self.ex_tokens[ex_idx] {
             tokens.remove(t);
@@ -197,6 +282,16 @@ impl Guide {
             let s = overlap(&tokens, &self.faq_tokens[ex_idx][j]);
             if best.as_ref().is_none_or(|(bs, _)| s > *bs) {
                 best = Some((s, f.a.clone()));
+            }
+        }
+        for z in self.quiz.iter().filter(|z| z.ex == ex_idx) {
+            let have = self.focus(&z.q);
+            if !want.is_empty() && !have.is_empty() && want.intersection(&have).next().is_none() {
+                continue;
+            }
+            let s = overlap(&tokens, &z.tokens);
+            if best.as_ref().is_none_or(|(bs, _)| s > *bs) {
+                best = Some((s, z.a.clone()));
             }
         }
         best.filter(|(s, _)| *s >= 0.5).map(|(_, a)| a)
@@ -231,6 +326,17 @@ impl Guide {
                 if s >= 0.6 && best.as_ref().is_none_or(|(_, bs, _)| s > *bs) {
                     best = Some((i, s, f.a.clone()));
                 }
+            }
+        }
+        // 互动问答题面与展品 FAQ 同等参与全库检索
+        for z in &self.quiz {
+            let have = self.focus(&z.q);
+            if !want.is_empty() && !have.is_empty() && want.intersection(&have).next().is_none() {
+                continue;
+            }
+            let s = overlap(&tokens, &z.tokens);
+            if s >= 0.6 && best.as_ref().is_none_or(|(_, bs, _)| s > *bs) {
+                best = Some((z.ex, s, z.a.clone()));
             }
         }
         best.map(|(i, _, a)| (i, a))
