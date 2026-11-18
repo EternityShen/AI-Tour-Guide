@@ -14,7 +14,9 @@ export class Speaker {
     // 兼容两种入参：base64 字符串（短音频内联）或 ArrayBuffer（长音频走 /api/audio 拉取）
     let bytes;
     if (audio instanceof ArrayBuffer) {
-      bytes = new Uint8Array(audio);
+      // decodeAudioData 会 detach 传入的 buffer，同一份 audio 重播第二次会抛
+      // InvalidStateError。这里统一拷贝，调用方传原 buffer 也能安全重播。
+      bytes = new Uint8Array(audio.slice(0));
     } else {
       const bin = atob(String(audio || ''));
       bytes = new Uint8Array(bin.length);
