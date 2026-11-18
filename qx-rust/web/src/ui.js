@@ -280,13 +280,14 @@ export function createUI({ theme, themeList, guide, handlers }) {
       clearTimeout(t);
       if (!r.ok) return null;
       const s = await r.json();
-      // 供 main.js 判断语音输入是否可用（主机版未接入 ASR 时按住说话给出明确提示）
+      // 供 main.js 判断语音输入是否可用（模型未安装/损坏时按住说话给出明确提示）
       window.__asrAvailable = s.asr_available !== false;
+      window.__asrError = s.asr_error || '';
       $('sKb').textContent = s.kb_answers;
       $('mKb').textContent = s.kb_answers + ' 条';
       $('sTts').textContent = s.tts_rtf ? Number(s.tts_rtf).toFixed(2) + '×' : '—';
       $('mAsr').textContent = s.asr_available === false
-        ? '文字问答'
+        ? '未安装'
         : s.asr_load_ms ? (Number(s.asr_load_ms) / 1000).toFixed(1) + ' s' : '加载中';
       $('mTts').textContent = s.tts_load_ms ? (Number(s.tts_load_ms) / 1000).toFixed(1) + ' s' : '加载中';
       $('mLlm').textContent = s.llm && s.llm.available
@@ -394,12 +395,17 @@ export function createUI({ theme, themeList, guide, handlers }) {
       : { ok: false, val: '接口无响应' });
     if (s && s.log_file) addCheck('运行日志', { ok: true, val: s.log_file });
 
-    // 4. 语音链路（主机版未接入离线识别时，不显示该项，避免自检面板出现无意义红项）
+    // 4. 语音链路（麦克风由后端 cpal 采集，模型缺失时如实显示原因）
     if (s) {
       if (s.asr_available !== false) {
         addCheck('离线语音识别', s.asr_load_ms > 0
-          ? { ok: true, val: `模型已加载 ${(s.asr_load_ms / 1000).toFixed(1)} s` }
-          : { ok: false, val: '模型仍在加载或未启动' });
+          ? { ok: true, val: `Qwen3-ASR 已就绪 ${(s.asr_load_ms / 1000).toFixed(1)} s` }
+          : { ok: false, val: '模型仍在加载（首次使用会等待）' });
+      } else {
+        addCheck('离线语音识别', {
+          ok: false,
+          val: s.asr_error || '模型未安装：请放置 asr/qwen3-asr-0.6b',
+        });
       }
       addCheck('离线语音合成', s.tts_load_ms > 0
         ? { ok: true, val: `已就绪 ${(s.tts_load_ms / 1000).toFixed(1)} s` }
@@ -409,21 +415,13 @@ export function createUI({ theme, themeList, guide, handlers }) {
         : { ok: false, val: '未连接 Ollama，将只用知识库作答' });
     }
 
-    // 5. 安全上下文 + 麦克风权限
-    addCheck('安全上下文', {
-      ok: !!window.isSecureContext,
-      val: window.isSecureContext ? `localhost / HTTPS（${location.host}）` : `非安全上下文（${location.host}），麦克风不可用`,
+    // 5. 麦克风采集方式（由 Rust cpal 直接采集，不依赖浏览器安全上下文）
+    addCheck('麦克风采集', {
+      ok: !s || s.asr_available !== false,
+      val: s && s.asr_available === false
+        ? '后端语音识别不可用'
+        : '后端 cpal 采集 · 按住说话时打开系统默认输入设备',
     });
-    let micVal = '未知（首次按住说话时申请）';
-    let micOk = true;
-    try {
-      if (navigator.permissions && navigator.permissions.query) {
-        const st = await navigator.permissions.query({ name: 'microphone' });
-        micVal = st.state === 'granted' ? '已授权' : st.state === 'denied' ? '被拒绝，请改用文字输入' : '未授权（首次会弹窗）';
-        micOk = st.state !== 'denied';
-      }
-    } catch (e) { micVal = '未知（浏览器不支持权限查询，首次按住说话时申请）'; }
-    addCheck('麦克风权限', { ok: micOk, val: micVal });
 
     // 6. 显示与音频设备
     addCheck('显示与缩放', {
@@ -432,11 +430,10 @@ export function createUI({ theme, themeList, guide, handlers }) {
     });
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
-      const micN = devs.filter((d) => d.kind === 'audioinput').length;
       const spkN = devs.filter((d) => d.kind === 'audiooutput').length;
-      addCheck('音频设备', { ok: micN > 0, val: `麦克风 ${micN} 个 · 扬声器 ${spkN ? spkN + ' 个' : '默认'}` });
+      addCheck('音频输出', { ok: true, val: spkN ? `扬声器 ${spkN} 个` : '系统默认设备' });
     } catch (e) {
-      addCheck('音频设备', { ok: true, val: '浏览器不支持枚举，按默认设备输出' });
+      addCheck('音频输出', { ok: true, val: '浏览器不支持枚举，按默认设备输出' });
     }
 
     // 7. 资源本地化
@@ -512,7 +509,7 @@ export function createUI({ theme, themeList, guide, handlers }) {
       t: '合规说明', sec: 15,
       p: [
         '模型自建、素材原创、开源组件清单可查',
-        '录音仅经本机回环，不出本机、不落盘',
+        '麦克风由本机进程直接采集，音频不落盘、不出本机',
         '顺带说明：宋体标题、琥珀配色、Maya 建模、缓存命中标注与「已取消」记录，都是开发留下的痕迹',
       ],
     },

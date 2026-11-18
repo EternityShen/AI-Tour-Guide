@@ -58,6 +58,9 @@ tools/cloudflared.exe
 # Local embedded VL model + optional large ASR model (built into exe, not source)
 qx-rust/models/
 qx-rust/asr/ggml-small-q5_1.bin
+# Qwen3-ASR-0.6B checkpoint (~1.9 GB, Apache-2.0): keep locally or host on Releases, not in git
+qx-rust/asr/qwen3-asr-0.6b/
+qx-rust/asr/Qwen3-ASR-0.6B/
 
 # slidep tool logs (throwaway)
 .slidep/

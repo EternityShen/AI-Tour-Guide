@@ -43,6 +43,12 @@ zip = "0.6"
 # 离线神经语音合成：onnxruntime 动态加载（随 tts/ 资产释放）
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-24"] }
 
+# 麦克风采集：Windows WASAPI / macOS CoreAudio / Linux ALSA，替代浏览器 WebAudio
+cpal = "0.18"
+# 离线语音识别：纯 Rust CPU 推理（Qwen3-ASR 0.6B）
+# 关闭默认的 download/cli 特性，避免引入 reqwest、CLI 和构建期模型下载。
+valle-asr = { version = "0.2.0", default-features = false, features = ["qwen3"] }
+
 sherpa-rs = { version = "0.6.8", default-features = false, optional = true, features = ["tts"] }
 
 llama-cpp-2 = { version = "0.1", optional = true }

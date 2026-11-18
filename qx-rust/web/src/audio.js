@@ -1,4 +1,4 @@
-// 音频：播放与口型同步 / 麦克风采集与 16k 重采样
+// 音频：播放与口型同步 / 语音识别控制连接（麦克风由 Rust cpal 采集）
 export class Speaker {
   constructor() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -89,100 +89,69 @@ export class Speaker {
   }
 }
 
-// 录音用 AudioContext 跨会话复用：iOS Safari 对并发 AudioContext 数量敏感，
-// 每次「按住说话」新建再 close 会很快触顶（DEF-12）
-let sharedCtx = null;
-async function sharedAudioContext() {
-  if (!sharedCtx || sharedCtx.state === 'closed') sharedCtx = new AudioContext();
-  if (sharedCtx.state === 'suspended') { try { await sharedCtx.resume(); } catch (e) { /* 忽略 */ } }
-  return sharedCtx;
-}
-
+// 麦克风采集已移到 Rust 端（cpal）：浏览器只负责建立 /ws/asr 控制连接，
+// 不再申请 getUserMedia 权限，也不做 ScriptProcessor 降采样。
 export class Mic {
   constructor() {
-    this.ctx = null;
-    this.stream = null;
-    this.node = null;
-    this.src = null;
     this.ws = null;
     this.onText = null;
+    this.onError = null;
     this.stopped = false;
+    this.gotFinal = false;
   }
 
   async start(onPartial, onFinal, onError) {
     this.onText = { partial: onPartial, final: onFinal };
     this.onError = onError;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
-    this.ctx = await sharedAudioContext();
-    const src = this.ctx.createMediaStreamSource(this.stream);
-    this.src = src;
-    this.node = this.ctx.createScriptProcessor(4096, 1, 1);
+    this.stopped = false;
+    this.gotFinal = false;
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.ws = new WebSocket(`${proto}://${location.host}/ws/asr`);
-    // 语音服务没起来时不能无限等：3.5 s 内连不上就报错，让上层复位
+    const ws = new WebSocket(`${proto}://${location.host}/ws/asr`);
+    this.ws = ws;
+    // 语音服务没起来时不能无限等：5 s 内连不上就报错，让上层复位。
+    // 连接建立后 cpal 才会打开麦克风，麦克风错误会作为 error 消息异步返回。
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('ASR_TIMEOUT')), 3500);
-      this.ws.onopen = () => { clearTimeout(timer); resolve(); };
-      this.ws.onerror = () => { clearTimeout(timer); reject(new Error('ASR_UNREACHABLE')); };
-      this.ws.onclose = () => {
-        if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
+      const timer = setTimeout(() => reject(new Error('ASR_TIMEOUT')), 5000);
+      ws.onopen = () => { clearTimeout(timer); resolve(); };
+      ws.onerror = () => { clearTimeout(timer); reject(new Error('ASR_UNREACHABLE')); };
+      ws.onclose = () => {
+        if (ws.readyState !== WebSocket.OPEN) {
           clearTimeout(timer);
           reject(new Error('ASR_CLOSED'));
         }
       };
     });
-    // 连接建立后重绑 onclose：服务端中途断开（如录音超上限、服务重启）要通知上层，
-    // 而不是静默卡在「聆听中」（DEF-19）
-    this.ws.onclose = () => { if (!this.stopped && this.onError) this.onError('语音服务连接已断开'); };
-    this.ws.onmessage = (ev) => {
-      const d = JSON.parse(ev.data);
+    // 服务端在 final 后会主动关连接；已拿到 final 时不当作异常。
+    ws.onclose = () => {
+      if (!this.stopped && !this.gotFinal && this.onError) this.onError('语音服务连接已断开');
+    };
+    ws.onmessage = (ev) => {
+      let d;
+      try { d = JSON.parse(ev.data); } catch (e) { return; }
       if (d.type === 'partial') this.onText.partial(d.text);
-      if (d.type === 'final') this.onText.final(d.text);
-      if (d.type === 'error' && this.onError) this.onError(d.text);
+      else if (d.type === 'final') { this.gotFinal = true; this.onText.final(d.text); }
+      else if (d.type === 'error' && this.onError) this.onError(d.text);
     };
-    this.ws.onerror = () => { if (this.onError) this.onError('语音服务连接失败'); };
-
-    const ratio = this.ctx.sampleRate / 16000;
-    this.node.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0);
-      const outLen = Math.floor(input.length / ratio);
-      const out = new Float32Array(outLen);
-      for (let i = 0; i < outLen; i++) {
-        let acc = 0;
-        const s = Math.floor(i * ratio);
-        const e2 = Math.floor((i + 1) * ratio);
-        for (let j = s; j < e2; j++) acc += input[j];
-        out[i] = acc / Math.max(1, e2 - s);
-      }
-      if (this.ws && this.ws.readyState === 1) this.ws.send(out);
-    };
-
-    // ScriptProcessor 必须接出去才会被驱动；用 0 增益接到 destination，避免自己的声音被放出来
-    const mute = this.ctx.createGain();
-    mute.gain.value = 0;
-    src.connect(this.node);
-    this.node.connect(mute);
-    mute.connect(this.ctx.destination);
-    this.mute = mute;
+    ws.onerror = () => { if (!this.stopped && !this.gotFinal && this.onError) this.onError('语音服务连接失败'); };
   }
 
   async flush() {
     if (!this.ws || this.ws.readyState !== 1) return;
-    // 文本帧 "END" 告诉服务端：录音结束，用离线模型重跑整段，出最终结果
+    // 文本帧 "END"：服务端停止 cpal 采集，把整段音频交给 valle-asr 出最终结果
     this.ws.send('END');
   }
 
   async stop() {
     this.stopped = true;
-    if (this.node) { this.node.disconnect(); this.node.onaudioprocess = null; }
-    if (this.mute) { try { this.mute.disconnect(); } catch (e) { /* 忽略 */ } }
-    if (this.src) { try { this.src.disconnect(); } catch (e) { /* 忽略 */ } }
-    // AudioContext 跨录音复用（iOS 对并发 AudioContext 数量敏感），不再每次 close（DEF-12）
-    if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
-    if (this.ws) { try { this.ws.close(); } catch (e) { /* 忽略 */ } }
-    this.node = this.src = this.ctx = this.stream = this.ws = this.mute = null;
+    const ws = this.ws;
+    this.ws = null;
+    if (!ws) return;
+    // 先摘掉回调：close 是异步握手，超时兜底后仍在路上的 final/error
+    // 若继续回调，会把上一轮的文本写进下一轮会话。
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    try { ws.close(); } catch (e) { /* 忽略 */ }
   }
 }

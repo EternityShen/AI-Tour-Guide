@@ -4,17 +4,17 @@
 //! 程序化贴图、中文 UI 全部由原来的 `app/` 目录渲染，本文件一行前端代码都不改。
 //! Python 后端被替换成：qx-core 的知识库路由 + Ollama 客户端 + 系统语音合成。
 
-use crate::asr::{append_pcm, Asr};
+use crate::asr::{Asr, AsrEvent};
 use crate::piper::PiperTts;
 use qx_core::{Guide, LlamaServerClient, LlmClient, Message, NoLlm, OllamaClient, Theme};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 const RATE_WINDOW: Duration = Duration::from_secs(60);
@@ -219,7 +219,7 @@ pub struct AppState {
     /// 所有语音合成均使用此本地 ONNX 模型，不再调用云端 Edge TTS。
     pub piper: Arc<PiperTts>,
     pub tts_cache: PathBuf,
-    /// 离线语音识别引擎（whisper.cpp，模型常驻）。不可用时 /api/stats 会如实上报。
+    /// 离线语音识别引擎（cpal 采集 + valle-asr/Qwen3-ASR）。不可用时 /api/stats 会如实上报。
     pub asr: Arc<Asr>,
     pub requests: u64,
     pub llm_requests: u64,
@@ -288,8 +288,8 @@ impl AppState {
                 TTS_RTF_X100.store(rtf.max(1), Ordering::Relaxed);
             }
         }
-        // ASR / WinRT 也改后台加载：whisper base 0.3–0.6 s、WinRT 最坏 3 s，
-        // 不该再让首屏等它们；就绪前 available()/ready() 如实返回 false。
+        // ASR 也走后台加载：先读 tokenizer/配置，1.8 GB 权重在首次推理时懒加载并预热，
+        // 不让首屏等模型；加载期间 available() 仍为 true，真正转写会等待引擎就绪。
         let asr = Asr::spawn_load(root.clone());
         Ok(Self {
             root,
@@ -458,7 +458,7 @@ fn handle_conn(stream: TcpStream, state: Arc<Mutex<AppState>>) {
 
     let path = raw_path.split('?').next().unwrap_or("/").to_string();
 
-    // WebSocket：麦克风音频流（16 kHz float32）/ END 收尾，见 asr.rs。
+    // WebSocket：/ws/asr 仅作控制/结果通道（END 收尾），麦克风由后端 cpal 采集，见 asr.rs。
     if headers.get("upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket")) {
         if !origin_allowed(&headers) {
             let status = json_response(
@@ -615,11 +615,13 @@ fn route(
     if path == "/api/stats" && method == "GET" {
         let st = state.lock().unwrap();
         let out = json!({
-            // 首选神经语音就绪耗时
+            // 语音识别 / 合成就绪耗时（ASR 权重首次推理后再预热）
             "asr_load_ms": st.asr.load_ms(), "tts_load_ms": st.piper.load_ms(),
             "llm_load_ms": 0,
             // 离线识别已接入：前端据此启用「按住说话」并显示自检行
             "asr_available": st.asr.available(),
+            // 诊断信息：模型缺失/损坏时告诉自检面板具体原因
+            "asr_error": st.asr.error(),
             "requests": st.requests, "llm_requests": st.llm_requests,
             "tts_rtf": TTS_RTF_X100.load(Ordering::Relaxed) as f64 / 100.0,
             "tts_offline": st.piper.load_ms() > 0,
@@ -1224,7 +1226,13 @@ fn b64(data: &[u8]) -> String {
 
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-fn handle_ws(r: &mut BufReader<TcpStream>, key: &str, asr: &Asr) {
+/// WebSocket 读线程只上报两种控制消息；识别结果由采集线程直接送回主循环。
+enum WsControl {
+    End,
+    Closed,
+}
+
+fn handle_ws(r: &mut BufReader<TcpStream>, key: &str, asr: &Arc<Asr>) {
     let accept = b64(&sha1(format!("{key}{WS_GUID}").as_bytes()));
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
@@ -1234,47 +1242,158 @@ fn handle_ws(r: &mut BufReader<TcpStream>, key: &str, asr: &Asr) {
     }
     let _ = r.get_mut().flush();
 
-    let mut pcm: Vec<f32> = Vec::with_capacity(16_000 * 8);
-    let mut partial_secs = 0usize;
-    let mut partial_count = 0u8;
-    while let Some((op, payload)) = ws_frame(r) {
-        match op {
-            8 => break, // close
-            2 => {
-                // 二进制帧 = Float32Array（16 kHz 单声道），前端已降采样。
-                append_pcm(&mut pcm, &payload);
-                let secs = pcm.len() / 16_000;
-                // 每多约 2 秒发一次中间结果：前端 hold-to-talk 期间能实时看到字幕，
-                // 且 stopTalk 的 3 s 超时会拿 lastPartial 兜底。同步推理约 0.7 s，
-                // 期间浏览器继续发的音频帧由 TCP 缓冲接住，读完会补齐，不会丢。
-                // 最多 4 次，避免 28 s 长录音反复阻塞读帧。
-                if asr.available() && secs >= partial_secs + 2 && partial_count < 4 {
-                    if let Some(text) = asr.transcribe(&pcm) {
-                        if !text.is_empty() {
-                            ws_text(r.get_mut(), &json!({"type": "partial", "text": text}).to_string());
-                        }
-                    }
-                    partial_secs = secs;
-                    partial_count += 1;
+    // 先启动采集：模型/麦克风不可用时直接回错误，不进入事件循环。
+    let session = match asr.start_capture() {
+        Ok(session) => session,
+        Err(e) => {
+            ws_text(
+                r.get_mut(),
+                &json!({"type": "error", "text": e}).to_string(),
+            );
+            // 前端收到 error 后仍会发 END；回一个空 final，让它立刻收尾。
+            while let Some((op, payload)) = ws_frame(r) {
+                if op == 8 {
+                    break;
                 }
-            }
-            1 => {
-                if payload == b"END" {
-                    // 用整段音频重跑一次，覆盖中间结果；不可用/静音时给空串，
-                    // 前端会退回 lastPartial 或提示用户改用文字。
-                    let text = asr.transcribe(&pcm).unwrap_or_default();
-                    tracing::info!(
-                        audio_secs = pcm.len() / 16_000,
-                        text_chars = text.chars().count(),
-                        "语音识别完成"
+                if op == 1 && payload == b"END" {
+                    ws_text(
+                        r.get_mut(),
+                        &json!({"type": "final", "text": ""}).to_string(),
                     );
-                    ws_text(r.get_mut(), &json!({"type": "final", "text": text}).to_string());
                     break;
                 }
             }
-            _ => {} // ping / pong / 其它控制帧
+            let _ = r.get_mut().shutdown(Shutdown::Both);
+            return;
+        }
+    };
+
+    // 客户端在这条连接上只会发 END / close；用独立读线程，主线程才能同时
+    // 转发 cpal 采集线程的 partial/final（同一个 TcpStream 只由一个线程写）。
+    let buffered = r.buffer().to_vec();
+    let Ok(read_half) = r.get_ref().try_clone() else {
+        session.cancel();
+        return;
+    };
+    let (ctrl_tx, ctrl_rx) = mpsc::channel::<WsControl>();
+    let reader = std::thread::Builder::new()
+        .name("qx-asr-ws".into())
+        .spawn(move || {
+            let mut rr = BufReader::new(std::io::Cursor::new(buffered).chain(read_half));
+            loop {
+                match ws_frame(&mut rr) {
+                    Some((8, _)) => {
+                        let _ = ctrl_tx.send(WsControl::Closed);
+                        break;
+                    }
+                    Some((1, payload)) if payload == b"END" => {
+                        let _ = ctrl_tx.send(WsControl::End);
+                        break;
+                    }
+                    Some(_) => {}
+                    None => {
+                        let _ = ctrl_tx.send(WsControl::Closed);
+                        break;
+                    }
+                }
+            }
+        });
+    if reader.is_err() {
+        session.cancel();
+        let _ = r.get_mut().shutdown(Shutdown::Both);
+        return;
+    }
+
+    let mut finishing = false;
+    let mut finish_deadline: Option<Instant> = None;
+    loop {
+        // 先排空识别事件，避免 final 已到达却先看到「线程结束」而补空文本。
+        let mut saw_final = false;
+        while let Some(event) = session.try_event() {
+            match event {
+                AsrEvent::Partial(text) => {
+                    ws_text(
+                        r.get_mut(),
+                        &json!({"type": "partial", "text": text}).to_string(),
+                    );
+                }
+                AsrEvent::Error(text) => {
+                    ws_text(
+                        r.get_mut(),
+                        &json!({"type": "error", "text": text}).to_string(),
+                    );
+                }
+                AsrEvent::Final { text, audio_ms } => {
+                    tracing::info!(
+                        audio_ms = audio_ms,
+                        text_chars = text.chars().count(),
+                        "语音识别完成"
+                    );
+                    ws_text(
+                        r.get_mut(),
+                        &json!({"type": "final", "text": text}).to_string(),
+                    );
+                    saw_final = true;
+                    break;
+                }
+            }
+        }
+        if saw_final {
+            break;
+        }
+        if session.is_finished() {
+            // 采集线程异常退出且没有 final：补空 final，避免前端等满超时。
+            ws_text(
+                r.get_mut(),
+                &json!({"type": "final", "text": ""}).to_string(),
+            );
+            break;
+        }
+        if let Some(deadline) = finish_deadline {
+            if Instant::now() >= deadline {
+                session.cancel();
+                ws_text(
+                    r.get_mut(),
+                    &json!({"type": "error", "text": "语音识别超时，请重试"}).to_string(),
+                );
+                ws_text(
+                    r.get_mut(),
+                    &json!({"type": "final", "text": ""}).to_string(),
+                );
+                break;
+            }
+        }
+
+        // 录音阶段每 50 ms 看一下控制帧；收尾阶段只等 final，降低空转。
+        let wait = if finishing {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_millis(50)
+        };
+        match ctrl_rx.recv_timeout(wait) {
+            Ok(WsControl::End) if !finishing => {
+                finishing = true;
+                // 首次推理要加载 1.8 GB 权重；给最终转写留足 30 秒。
+                finish_deadline = Some(Instant::now() + Duration::from_secs(30));
+                session.finish();
+            }
+            Ok(WsControl::End) => {}
+            Ok(WsControl::Closed) => {
+                session.cancel();
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if !finishing {
+                    session.cancel();
+                    break;
+                }
+                // 读线程已退出但采集线程还在收尾：慢速轮询 final，避免空转。
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
+    let _ = r.get_mut().shutdown(Shutdown::Both);
 }
 
 fn ws_frame(r: &mut impl Read) -> Option<(u8, Vec<u8>)> {
@@ -1414,16 +1533,7 @@ mod tests {
         let _client = build_llm(&empty); // 不应 panic，也不应连到空地址
     }
 
-    /// 严格离线守卫的四种组合：不能把「在线小伊可用」误判成断网而静音，
-    /// 也不能在严格模式 + 断网时放行华艳（那正是用户报的音色突变）。
-    #[test]
-    fn strict_guard_only_blocks_fallback_when_xiaoyi_is_unavailable() {
-        assert!(keep_xiaoyi_only(true, Some(true)), "严格 + 断网必须禁止回退");
-        assert!(keep_xiaoyi_only(true, None), "无在线客户端按断网处理");
-        assert!(!keep_xiaoyi_only(true, Some(false)), "在线小伊可用时不应静音");
-        assert!(!keep_xiaoyi_only(false, Some(true)), "未开严格模式保持有声回退");
-        assert!(!keep_xiaoyi_only(false, None));
-    }
+    /// 注：Edge TTS 回退已移除，`keep_xiaoyi_only` 不再存在，严格离线守卫测试随功能删除。
 
     /// /api/stats 的覆盖率数字必须只数合法的缓存音频文件，不能把 .txt / 报告
     /// 之类的杂项算进去，否则会虚报「离线语音已备齐」。
@@ -1492,7 +1602,7 @@ mod tests {
         println!("reply({}字): {}", answer.reply.chars().count(), answer.reply);
 
         let hex = tts_key(&answer.reply);
-        let (wav, dur, visemes) = synthesize(&piper, &tts_cache, None, &answer.reply);
+        let (wav, dur, visemes) = synthesize(&piper, &tts_cache, &answer.reply);
         assert!(wav.len() > 44, "合成产物应是有效 wav");
         assert!(dur > 0.5, "时长应来自真实 wav 帧数，实测 {dur}s");
         assert!(!visemes.is_empty(), "口型轨道应与文本等长");
@@ -1504,7 +1614,7 @@ mod tests {
         assert!(rate > 3.5, "语速应接近真人讲解（>3.5 字/秒），实测 {rate:.1}");
 
         // 二次合成同文本：直接命中磁盘缓存
-        let (wav2, dur2, _) = synthesize(&piper, &tts_cache, None, &answer.reply);
+        let (wav2, dur2, _) = synthesize(&piper, &tts_cache, &answer.reply);
         assert_eq!(wav.len(), wav2.len());
         assert!((dur - dur2).abs() < 1e-9);
     }

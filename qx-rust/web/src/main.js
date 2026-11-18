@@ -14,9 +14,11 @@ let speaking = false;
 let firstInteract = false;
 let mic = null;
 let micBusy = false;
+let micStopping = false;
 let pendingStop = false;
 let lastPartial = '';
 let finalText = '';
+let talkError = '';
 let lastReply = null;
 let degraded = false;
 let mainRaf = 0;   // 主渲染循环句柄：降级时一并取消，避免空转调度（DEF-27）
@@ -272,13 +274,8 @@ preloadModels(theme, {
   console.warn('[model] 展品模型加载异常：', e);
   window.qxLog?.('warn', '展品模型加载异常：' + ((e && e.message) || e), { source: 'model', stack: e && e.stack });
 });
-// 非安全上下文（局域网 IP / 公网 IP / 主机名）下浏览器不给麦克风，提前讲清楚
-if (!window.isSecureContext) {
-  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-  ui.showBanner(isLocal
-    ? `当前不是安全上下文，麦克风不可用；请用 http://localhost${location.port ? ':' + location.port : ''} 打开`
-    : '当前通过公网地址访问，浏览器不开放麦克风；可以先用文字提问，语音需要 https 或在本机打开');
-}
+// 麦克风由桌面端 Rust 进程（cpal）直接采集，不再依赖浏览器的安全上下文；
+// 页面即使通过本机 HTTP 打开也能正常「按住说话」。
 
 // 数字人后台加载；失败就切无人物模式，不影响讲解
 (async () => {
@@ -368,7 +365,7 @@ document.addEventListener('pointerdown', async () => {
   if (firstInteract) return;
   firstInteract = true;
   await speaker.unlock().catch(() => {});
-  ui.toast('语音仅经本机回环处理，不出本机、不落盘');
+  ui.toast('语音由本机进程直接采集识别，音频不出本机、不落盘');
 }, { once: true });
 
 // ─────────── 讲解主流程 ───────────
@@ -653,14 +650,15 @@ function clearChat() {
 
 // ─────────── 语音输入 ───────────
 async function startTalk() {
-  // 主机版未接入离线识别：明确告知，避免「按住说话没反应」像坏了
+  // 模型缺失/加载失败：明确告知，避免「按住说话没反应」像坏了
   if (window.__asrAvailable === false) {
-    ui.toast('演示版请用文字提问（离线语音识别未启用）', 'error');
+    const why = (window.__asrError || '').trim();
+    ui.toast(why ? `离线语音识别不可用：${why}` : '离线语音识别模型未安装，请用文字提问', 'error');
     return;
   }
   if (speaking) stopSpeaking();
   await speaker.unlock().catch(() => {});
-  if (mic || micBusy) return;
+  if (mic || micBusy || micStopping) return;
   micBusy = true;
   pendingStop = false;
   ui.setStatus('聆听中', 'listen');
@@ -668,30 +666,28 @@ async function startTalk() {
   ui.clearSubtitle();
   lastPartial = '';
   finalText = '';
+  talkError = '';
 
   const m = new Mic();
   try {
     await m.start(
       (t) => { lastPartial = t; ui.partial(t || '…'); },
       (t) => { finalText = t; ui.partial(t); },
-      (t) => ui.setStatus('识别异常：' + t, 'err')
+      (t) => { talkError = t; ui.setStatus('识别异常：' + t, 'err'); }
     );
     mic = m;
-    // 服务端有 30 秒硬上限（超限会静默丢音频）：前端 28 秒先自动收尾并提示（DEF-19）
+    // 服务端采集 28 秒后自动收尾：前端同点结束按住状态并提示（DEF-19）
     clearTimeout(talkGuard);
     talkGuard = setTimeout(() => {
       if (mic === m) { ui.toast('已达最长录音时长，自动结束', 'error'); stopTalk(); }
     }, 28000);
   } catch (e) {
     const name = e && e.message;
-    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
     const noService = name === 'ASR_TIMEOUT' || name === 'ASR_UNREACHABLE' || name === 'ASR_CLOSED';
-    ui.setStatus(denied ? '麦克风被拒绝' : noService ? '语音服务未启动' : '麦克风不可用', 'err');
+    ui.setStatus(noService ? '语音服务未启动' : '语音服务不可用', 'err');
     ui.toast(
-      denied ? '麦克风权限被拒绝：请用下方文字输入，或在地址栏重新授权'
-        : noService ? '语音识别服务未启动：可先用文字输入，稍后再试'
-          : !window.isSecureContext ? '当前不是安全上下文，请改用 http://localhost:8765'
-            : '麦克风不可用，可改用文字输入',
+      noService ? '语音识别服务未启动：可先用文字输入，稍后再试'
+        : '语音识别不可用：可先用文字输入',
       'error',
     );
     await m.stop().catch(() => {});
@@ -710,12 +706,17 @@ async function stopTalk() {
   if (!mic) return;
   const m = mic;
   mic = null;
+  micStopping = true;
   ui.setStatus('识别中', 'think');
 
+  // 首次说话时服务端要加载 1.8 GB Qwen3-ASR 权重，最终转写可能等十几秒；
+  // 正常情况句尾静音就会立即收尾，不需要等满 20 秒。
   const done = new Promise((resolve) => {
     const t0 = performance.now();
     const check = () => {
-      if (finalText || performance.now() - t0 > 3000) return resolve(finalText || lastPartial);
+      if (finalText) return resolve(finalText);
+      if (talkError) return resolve('');
+      if (performance.now() - t0 > 20000) return resolve(lastPartial);
       setTimeout(check, 80);
     };
     check();
@@ -723,11 +724,18 @@ async function stopTalk() {
   await m.flush().catch(() => {});
   const text = await done;
   await m.stop().catch(() => {});
+  const failed = talkError;
   finalText = '';
   lastPartial = '';
+  talkError = '';
+  micStopping = false;
   const t = (text || '').trim();
   if (t) ask(t);
-  else {
+  else if (failed) {
+    ui.setStatus('语音识别失败，可改用文字', 'err');
+    ui.clearSubtitle();
+    setTimeout(() => ui.setStatus('待机'), 2400);
+  } else {
     ui.setStatus('没听清，再说一次', 'err');
     ui.clearSubtitle();
     setTimeout(() => ui.setStatus('待机'), 1800);
@@ -736,7 +744,7 @@ async function stopTalk() {
 
 // ─────────── 键盘与鼠标 ───────────
 const micBtn = $('mic');
-let talkGuard = 0;   // 最长录音时长定时器（服务端 30 秒硬上限，提前 2 秒自动收尾）
+let talkGuard = 0;   // 最长录音时长定时器（与服务端 28 秒采集上限对齐）
 micBtn.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   // 指针捕获（DEF-04）：手指/鼠标移出按钮后 pointerup 仍派发到按钮上，录音一定能结束

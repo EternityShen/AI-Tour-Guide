@@ -1,6 +1,6 @@
 # 侨乡 AI 智能讲解员（qx-rust）
 
-开平碉楼文化的 AI 导览桌面应用：GPUI 原生窗口 + WebView 渲染 Three.js + VRM 数字人前端，内置离线语音识别（Whisper）与离线神经语音合成（VITS），断网也能完整导览。
+开平碉楼文化的 AI 导览桌面应用：GPUI 原生窗口 + WebView 渲染 Three.js + VRM 数字人前端，内置离线语音识别（Qwen3-ASR）与离线神经语音合成（VITS），断网也能完整导览。
 
 ## 架构
 
@@ -13,7 +13,7 @@ qx-rust/
 ├── web/             # 前端页面（Three.js + VRM 数字人 + 聊天 UI），编译期打进 exe
 ├── themes/          # 主题包（讲解词、知识库、测验题）
 ├── tts/             # VITS 模型（zh_CN-huayan-medium）+ espeak-ng G2P 数据
-├── asr/             # Whisper 模型（ggml-base-q5_1）
+├── asr/             # Qwen3-ASR 0.6B 模型（qwen3-asr-0.6b/）
 ├── prebuilt-voices/ # 预烘焙的断网语音（tts-cache 覆盖）
 └── tools/           # voice_bake 等辅助脚本
 ```
@@ -25,20 +25,24 @@ qx-rust/
 
 | 环节 | 实现 | 说明 |
 |------|------|------|
-| 语音识别（ASR） | `whisper-rs`（静态编译 whisper.cpp） | ggml-base-q5_1 模型，16kHz mono PCM，30s 上限，静音门限过滤 |
+| 语音识别（ASR） | `cpal` 采集 + `valle-asr`（Qwen3-ASR 0.6B，纯 Rust CPU 推理） | 后端直接打开系统默认麦克风，16kHz mono，能量 VAD 自动分段；模型完全本地加载，不联网、不调用外部 exe |
 | 离线 TTS | `sherpa-rs`（sherpa-onnx VITS） | zh_CN-huayan-medium 模型，内置 C++ espeak-ng 做 G2P，静态链接进 exe |
 | 在线 TTS | `msedge-tts`（纯 Rust） | 微软 Edge 在线语音（小伊），`QX_TTS_EDGE=off` 可强制全程离线 |
 | 断网兜底 | `voice_bake` 预烘焙 | 赛前烘焙高频讲解词到 tts-cache，断网时按缓存键命中 |
 
 环境变量调音（离线 VITS）：`QX_TTS_NOISE_SCALE` / `QX_TTS_LENGTH_SCALE` / `QX_TTS_NOISE_W`。
 
+离线 ASR 模型默认从 `asr/qwen3-asr-0.6b`、`asr/Qwen3-ASR-0.6B` 或环境变量 `QX_ASR_MODEL_DIR` 指定的目录加载；目录内需有 `config.json`、`model.safetensors`，以及 `tokenizer.json`（或旧式 `vocab.json` + `merges.txt` + `tokenizer_config.json`）。模型不会在运行时下载。启动时默认用 0.5 秒静音预热权重，`QX_ASR_NO_WARMUP=1` 可跳过预热（首次说话会变慢）。
+
+分发时有两种放法：把模型目录放在 exe 同级 `asr/qwen3-asr-0.6b`，exe 保持较小；或把模型放进源码树 `qx-rust/asr/` 并用 `QX_EMBED_ASR=1` 构建，打进 exe（单文件自包含，但 exe 会增大约 1.9 GB，链接更慢，且 >2 GB 的 exe 在部分 Windows 上会报「不是有效的应用程序」无法启动，因此默认不嵌入）。
+
 ## 构建与运行
 
 ### 依赖
 
 - Rust（edition 2024，建议最新 stable）
-- CMake + C/C++ 工具链（首次编译静态链接 sherpa-onnx 与 whisper.cpp 用，各需几分钟）
-- Linux 附加：WebKitGTK 运行库（Arch: `pacman -S webkit2gtk-4.1`）、clang/libclang
+- CMake + C/C++ 工具链（首次编译静态链接 sherpa-onnx 用，需几分钟；ASR 为纯 Rust，无需额外工具链）
+- Linux 附加：WebKitGTK 运行库（Arch: `pacman -S webkit2gtk-4.1`）、ALSA 开发库（Arch: `alsa-lib`；Debian/Ubuntu: `libasound2-dev`）、clang/libclang
 - Windows 附加：MSVC 工具链 + WebView2（Win10/11 自带）
 
 ### 命令
@@ -55,6 +59,7 @@ LLM 后端默认指向本地 Ollama（`qwen3.5:4b`），无 Ollama 时自动回�
 
 - **Linux + NVIDIA / Wayland**：程序启动时会自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（WebKitGTK 的 DMABUF 渲染器在 NVIDIA 下分配 GBM buffer 失败会导致黑屏）并固定 X11 窗口模式（XWayland 下正常工作），无需手动干预。
 - **Linux 静态链接**：`.cargo/config.toml` 为 Linux 目标设置 `relocation-model=dynamic-no-pic`（sherpa-onnx 静态库要求），对 Windows 构建无影响。
+- **macOS 麦克风权限**：cpal 直接访问系统输入设备；打包 .app 时需在 `Info.plist` 写入 `NSMicrophoneUsageDescription`，否则系统会拒绝采集。
 - 首次构建时 sherpa-rs 会用 CMake 源码编译 sherpa-onnx（含 onnxruntime），结果静态链接进 exe——不要使用其默认的 `download-binaries` 预编译包（缺静态库，且内置的裁剪版 onnxruntime 会触发 `GetElementType is not implemented` 崩溃）。
 
 ## 日志

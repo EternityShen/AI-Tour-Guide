@@ -27,7 +27,7 @@ mod voice_bake;
 mod local_llm;
 
 use std::fs;
-use std::io::Read;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use gpui_kit::*;
@@ -37,7 +37,7 @@ const TITLE: &str = "侨乡 · 江门 AI 智能讲解员";
 
 /// 运行时资产释放目录名。`voice_bake` 也用它定位演示时在线合成的语音缓存；
 /// 升版本时两处必须同步，否则烘焙会去旧目录找缓存。
-pub(crate) const BUNDLE_DIR_NAME: &str = "qx-guide-bundle-v10";
+pub(crate) const BUNDLE_DIR_NAME: &str = "qx-guide-bundle-v11";
 
 /// 编译期打进 exe 的页面 + 主题包（build.rs 生成）。
 const BUNDLE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bundle.zip"));
@@ -52,6 +52,9 @@ fn extract_bundle() -> PathBuf {
     // v7：吉祥物模式首帧即隐藏 VRM 人形网格 + 加载层等吉祥物就位再揭开，消除开场旧人物闪现
     // v8：左上角加品牌标志（assets/brand/*.svg），强制释放新页面避免旧 index.html 残留
     // v9：新增 asr/（whisper.dll + ggml*.dll + base 量化模型），换目录避免旧版残留 DLL 干扰
+    // v11：语音识别改为 cpal 采集 + valle-asr/Qwen3-ASR，旧 whisper 资产不再随包。
+    //      模型默认不嵌入 exe（>2 GB 的 exe 在部分 Windows 上无法启动），
+    //      从 exe 同级 asr/ 或 QX_ASR_MODEL_DIR 加载；换目录清掉旧 whisper 残留。
     let dir = std::env::temp_dir().join(BUNDLE_DIR_NAME);
 
     // 清理旧版本残留目录（如 qx-guide-bundle-v8 等），避免旧 DLL 干扰新版
@@ -93,9 +96,10 @@ fn extract_bundle() -> PathBuf {
             if fresh {
                 continue;
             }
-            let mut buf = Vec::with_capacity(f.size() as usize);
-            let _ = f.read_to_end(&mut buf);
-            let _ = fs::write(&out, &buf);
+            // 流式写出：Qwen3-ASR 权重有 1.8 GB，整文件读进 Vec 会让启动峰值内存翻倍。
+            if let Ok(mut out_file) = fs::File::create(&out) {
+                let _ = std::io::copy(&mut f, &mut out_file);
+            }
         }
     }
     dir
@@ -291,7 +295,11 @@ fn main() {
     // 直接 curl /api/ask 验证接口（含识图）。不设 QX_HEADLESS 时行为完全不变。
     if std::env::var_os("QX_HEADLESS").is_some() {
         tracing::info!(url = %format!("http://127.0.0.1:{port}/"), "无头模式服务已就绪");
-        eprintln!("[headless] 服务已就绪：http://127.0.0.1:{port}/ （Ctrl+C 结束）");
+        // GUI 子系统没有可用的 stderr，直接 eprintln! 会 panic；写失败时静默忽略。
+        let _ = writeln!(
+            std::io::stderr(),
+            "[headless] 服务已就绪：http://127.0.0.1:{port}/ （Ctrl+C 结束）"
+        );
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         }

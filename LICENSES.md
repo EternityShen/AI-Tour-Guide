@@ -8,7 +8,10 @@
 |---|---|---|---|---|
 | Three.js | r187 | 3D 渲染 | MIT | https://github.com/mrdoob/three.js |
 | @pixiv/three-vrm | 3.5.5 | VRM 数字人加载与表情 | MIT | https://github.com/pixiv/three-vrm |
-| sherpa-onnx | — | 离线流式语音识别（Paraformer / SenseVoice） | Apache-2.0 | https://github.com/k2-fsa/sherpa-onnx |
+| sherpa-onnx | — | 离线神经网络语音合成（Piper VITS 推理） | Apache-2.0 | https://github.com/k2-fsa/sherpa-onnx |
+| valle-asr | 0.2.0 | 离线语音识别（Qwen3-ASR 纯 Rust 推理） | Apache-2.0 | https://crates.io/crates/valle-asr |
+| cpal | 0.18 | 跨平台麦克风采集（WASAPI / CoreAudio / ALSA） | Apache-2.0 | https://github.com/RustAudio/cpal |
+| Qwen3-ASR-0.6B | — | 离线语音识别模型权重 | Apache-2.0 | https://huggingface.co/Qwen/Qwen3-ASR-0.6B |
 | Piper | — | 离线神经网络语音合成（VITS 声学模型） | MIT | https://github.com/rhasspy/piper |
 | ONNX Runtime | 1.24.1 | 神经网络推理运行时（Piper 声学模型执行） | MIT | https://github.com/microsoft/onnxruntime |
 | espeak-ng | 1.52 | 中文音素化（Piper 语音前端，随 exe 分发的 `espeakbridge.pyd`） | GPL-3.0 | https://github.com/espeak-ng/espeak-ng |
@@ -46,7 +49,7 @@
 
 ## 五、数据与隐私
 
-- 麦克风音频仅经本机回环 `127.0.0.1` 送入本地识别进程，识别完成即释放，不写入磁盘、不上传互联网。
+- 麦克风音频由本机 Rust 进程（cpal）直接采集，仅在内存中用于离线识别，识别完成即释放，不写入磁盘、不上传互联网。
 - 对话记录仅保存在浏览器内存，刷新即清空。
 - 不收集任何个人身份信息，不含第三方统计/埋点脚本。
 

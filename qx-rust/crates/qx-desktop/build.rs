@@ -31,9 +31,18 @@ fn main() {
     // 解压到 bundle 根目录后运行时直接命中磁盘缓存，演示全程离线。
     // 目录为空时 add_dir 静默跳过，等价于纯离线 Piper 方案。
     add_dir(&mut zw, &root.join("prebuilt-voices"), Path::new("tts-cache"), &opts);
-    // 离线语音识别（①）：whisper.cpp 已由 whisper-rs 静态编译进主程序，
-    // 随包只需 base 量化模型（不再有 whisper.dll / ggml*.dll）。
-    add_asr_assets(&mut zw, &root.join("asr"), Path::new("asr"), &opts);
+    // 离线语音识别：cpal 采集 + valle-asr（Qwen3-ASR 0.6B，纯 Rust CPU 推理）。
+    // 默认不打进 exe：权重 1.9 GB，嵌进去 exe 超过 2 GB，实测部分 Windows
+    // 无法启动（CreateProcess 报 ERROR_BAD_EXE_FORMAT）。分发时把模型目录
+    // 放在 exe 同级 asr/qwen3-asr-0.6b，或设置 QX_ASR_MODEL_DIR 指向它。
+    // QX_EMBED_ASR=1 时随包释放（单文件自包含），目标机器需确认能运行超大 exe。
+    if std::env::var("QX_EMBED_ASR").as_deref() == Ok("1") {
+        add_asr_assets(&mut zw, &root.join("asr"), Path::new("asr"), &opts);
+    } else {
+        println!(
+            "cargo:warning=ASR 模型不随包：运行时从 exe 同级 asr/ 或 QX_ASR_MODEL_DIR 加载"
+        );
+    }
     zw.finish().expect("打包失败");
 
     // 页面/主题/语音资产有变动时重新打包
@@ -62,37 +71,74 @@ fn add_dir(zw: &mut zip::ZipWriter<File>, base: &Path, prefix: &Path, opts: &Fil
     }
 }
 
-/// 打包 ASR 运行时：只带 ggml 模型（引擎静态链入主程序，无需 DLL）。
-/// 量化模型已高度压缩，Deflate 几乎压不动还拖慢每次增量构建，改为 Stored 直存。
-/// Windows 专用的 dll（whisper.dll/ggml*.dll/SDL2.dll）在跨平台版里已不需要，
-/// 目录里如有残留也不再打包。
+/// 打包 ASR 模型：把 `asr/` 下的 Qwen3-ASR checkpoint 目录递归收进 bundle。
+///
+/// 旧版 whisper-cli.exe/ggml 模型不再使用，这里按扩展名过滤掉这些运行时文件；
+/// `.safetensors` 已接近不可压缩，Deflate 只会拖慢每次增量构建，改为 Stored 直存。
+/// 运行时 asr.rs 会从解压目录 `asr/qwen3-asr-0.6b`（也兼容 `Qwen3-ASR-0.6B`）加载。
 fn add_asr_assets(zw: &mut zip::ZipWriter<File>, dir: &Path, prefix: &Path, opts: &FileOptions) {
-    let Ok(rd) = fs::read_dir(dir) else {
-        println!("cargo:warning=asr/ 不存在，离线语音识别将不可用");
+    if !dir.is_dir() {
+        println!(
+            "cargo:warning=asr/ 不存在，离线语音识别不可用（请放置 asr/qwen3-asr-0.6b）"
+        );
         return;
-    };
+    }
     let stored = FileOptions::default().compression_method(CompressionMethod::Stored);
     let mut count = 0;
+    add_asr_dir(zw, dir, prefix, opts, &stored, &mut count);
+    if count == 0 {
+        println!(
+            "cargo:warning=asr/ 下未找到 Qwen3-ASR 模型文件（需含 config.json + model.safetensors），离线语音识别不可用"
+        );
+    } else {
+        println!("cargo:warning=ASR 随包资产：{count} 个文件");
+    }
+}
+
+fn add_asr_dir(
+    zw: &mut zip::ZipWriter<File>,
+    dir: &Path,
+    prefix: &Path,
+    opts: &FileOptions,
+    stored: &FileOptions,
+    count: &mut usize,
+) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
     for entry in rd.flatten() {
         let path = entry.path();
-        if !path.is_file() {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if path.is_dir() {
+            println!("cargo:rerun-if-changed={}", path.display());
+            add_asr_dir(zw, &path, &prefix.join(&name), opts, stored, count);
             continue;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-        let is_model = name.eq_ignore_ascii_case("ggml-base-q5_1.bin") && path.is_file()
-            || name.eq_ignore_ascii_case("ggml-base.bin");
-        if !is_model {
+        println!("cargo:rerun-if-changed={}", path.display());
+        // 只收 checkpoint/tokenizer 文件，排除旧的 whisper-cli.exe、*.dll、ggml-*.bin。
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !matches!(
+            ext.as_str(),
+            "json" | "txt" | "safetensors" | "jinja" | "model"
+        ) {
             continue;
         }
-        let Ok(data) = fs::read(&path) else { continue };
-        let o = if is_model { &stored } else { opts };
-        let rel = prefix.join(name);
+        let mut src = match fs::File::open(&path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let o = if ext == "safetensors" { stored } else { opts };
+        let rel = prefix.join(&name);
         zw.start_file(rel.to_string_lossy().replace('\\', "/"), *o)
             .expect("写入 ASR 条目失败");
-        zw.write_all(&data).expect("写入 ASR 数据失败");
-        count += 1;
+        // 直接流式拷贝：1.8 GB 的 safetensors 若先读进 Vec，构建期内存会翻倍。
+        std::io::copy(&mut src, zw).expect("写入 ASR 数据失败");
+        *count += 1;
     }
-    println!("cargo:warning=ASR 随包资产：{count} 个文件");
 }
 
 /// 把 resources/app.rc 编成 .res 并交给链接器，让 exe 带上图标与版本信息。
