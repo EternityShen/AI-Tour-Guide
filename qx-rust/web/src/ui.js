@@ -1,4 +1,4 @@
-// 页面交互层：导览册、快捷提问、问答记录、字幕、错误恢复、演示模式、自检、评审资料
+// 页面交互层：导览册、快捷提问、问答记录、字幕、错误恢复、自检、评审资料
 import { createQuiz } from './quiz.js';
 const $ = (id) => document.getElementById(id);
 
@@ -259,16 +259,12 @@ export function createUI({ theme, themeList, guide, handlers }) {
     // 同一句话第二次问会命中语音缓存，几十毫秒就出声；如实标注，别让评委以为是造假
     const cached = ms < 200;
     $('sResp').textContent = ms + ' ms';
-    $('mResp').textContent = ms + ' ms';
     const note = cached ? '端到端响应 · 命中缓存' : '端到端响应（提问→出声）';
     $('sRespNote').textContent = note;
-    $('mRespNote').textContent = note;
   }
   function resetMetrics() {
     $('sResp').textContent = '—';
-    $('mResp').textContent = '—';
     $('sRespNote').textContent = '端到端响应（首问后显示）';
-    $('mRespNote').textContent = '端到端响应（提问→出声）';
   }
 
   async function loadStats() {
@@ -284,22 +280,13 @@ export function createUI({ theme, themeList, guide, handlers }) {
       window.__asrAvailable = s.asr_available !== false;
       window.__asrError = s.asr_error || '';
       $('sKb').textContent = s.kb_answers;
-      $('mKb').textContent = s.kb_answers + ' 条';
       $('sTts').textContent = s.tts_rtf ? Number(s.tts_rtf).toFixed(2) + '×' : '—';
-      $('mAsr').textContent = s.asr_available === false
+      const asrEl = $('sAsr');
+      if (asrEl) asrEl.textContent = s.asr_available === false
         ? '未安装'
         : s.asr_load_ms ? (Number(s.asr_load_ms) / 1000).toFixed(1) + ' s' : '加载中';
-      $('mTts').textContent = s.tts_load_ms ? (Number(s.tts_load_ms) / 1000).toFixed(1) + ' s' : '加载中';
-      $('mLlm').textContent = s.llm && s.llm.available
-        ? (s.llm.model || '本地千问') + (s.llm_load_ms ? ' · ' + (Number(s.llm_load_ms) / 1000).toFixed(1) + ' s' : '')
-        : '未连接';
-      // 技术架构弹层里的模型名跟随真实配置，不再写死 qwen2.5:7b（DEF-11）
-      const tech = $('mLlmTech');
-      if (tech) {
-        tech.textContent = s.llm && s.llm.available
-          ? `本地千问 ${s.llm.model || ''}`.trim()
-          : '本地千问（未连接）';
-      }
+      const ttsLoadEl = $('sTtsLoad');
+      if (ttsLoadEl) ttsLoadEl.textContent = s.tts_load_ms ? (Number(s.tts_load_ms) / 1000).toFixed(1) + ' s' : '加载中';
       return s;
     } catch (e) {
       clearTimeout(t);
@@ -310,33 +297,25 @@ export function createUI({ theme, themeList, guide, handlers }) {
   // ─────────── 弹层 ───────────
   let lastFocus = null;   // 打开弹层前的焦点，关闭时归还
   function openSheet(kind) {
-    $('techPane').style.display = kind === 'tech' ? 'block' : 'none';
-    $('reviewPane').style.display = kind === 'review' ? 'block' : 'none';
-    $('checkPane').style.display = kind === 'check' ? 'block' : 'none';
-    $('sheetTitle').textContent = kind === 'tech' ? '技术架构' : kind === 'review' ? '评审资料' : '演示前自检';
+    $('checkPane').style.display = 'block';
+    $('sheetTitle').textContent = '演示前自检';
     if (!$('modal').classList.contains('show')) {
       lastFocus = document.activeElement;
       $('modal').classList.add('show');
       try { $('sheetClose').focus({ preventScroll: true }); } catch (e) { $('sheetClose').focus(); }
     }
-    // 「导览册」高亮跟面板走，其余按钮跟弹层走，关闭后不再互相错乱；
-    // 「演示模式」按钮独立管理，弹层开关不能抹掉它的激活态（DEF-16）
+    // 「导览册」高亮跟面板走，自检按钮跟弹层走，关闭后不再互相错乱
     document.querySelectorAll('.nav button').forEach((b) => {
-      if (b.dataset.act === 'demo') return;
-      if (b.dataset.act === 'guide') {
-        b.classList.toggle('on', !$('guidePanel').classList.contains('hide'));
-      } else {
-        b.classList.toggle('on', b.dataset.act === (kind === 'check' ? 'selfcheck' : kind));
-      }
+      b.classList.toggle('on', b.dataset.act === 'guide'
+        ? !$('guidePanel').classList.contains('hide')
+        : b.dataset.act === 'selfcheck');
     });
     if (kind === 'check') runSelfCheck();
   }
   function closeSheet() {
     if (!$('modal').classList.contains('show')) return;
     $('modal').classList.remove('show');
-    // 「演示模式」按钮独立管理，这里不碰它的激活态（DEF-16）
     document.querySelectorAll('.nav button').forEach((b) => {
-      if (b.dataset.act === 'demo') return;
       if (b.dataset.act !== 'guide') b.classList.remove('on');
     });
     const gbtn = document.querySelector('.nav button[data-act="guide"]');
@@ -468,121 +447,13 @@ export function createUI({ theme, themeList, guide, handlers }) {
       </div>`).join('');
   }
 
-  // ─────────── 演示模式 ───────────
-  const DEMO = [
-    {
-      t: '说明问题', sec: 30,
-      p: ['侨乡景区讲解人力不足、旺季排队', '讲解内容口径不一，游客听到的信息碎片化', '本作品：可对话、可扩内容、可离线复制的讲解员'],
-    },
-    {
-      t: '操作演示', sec: 60,
-      p: [
-        '点击左侧「开平碉楼」开讲',
-        '按住空格问「为什么叫碉楼」',
-        '追问「碉楼是谁盖的」——答：南洋、美洲华侨寄钱寄图纸，本地匠人施工',
-        '再问「开平有多少座碉楼」——答：一千八百多座，2007 年列入世界文化遗产',
-        '被打断就点「停止播报」，记录里会留一条「已取消」，不装作没发生',
-      ],
-    },
-    {
-      t: '技术亮点', sec: 60,
-      p: [
-        '打开「技术架构」：四层链路一览',
-        '常问的题走结构化知识，几十毫秒出声；同一句第二次问命中语音缓存，响应显示 3 ms 就标「命中缓存」',
-        '知识库里没有的，才交给本机千问；重要史实不放大模型，避免它编年份、编数字',
-      ],
-    },
-    {
-      t: '应用价值', sec: 45,
-      p: [
-        '旺季讲解员排不过来，一队人挤在碉楼底下听不清',
-        '办个临时展，讲解词要重写一遍',
-        '游客问「这楼为什么这么高」，讲解员不一定答得上',
-        '一台电脑部署，无云服务费；主题包改文件就能换展',
-      ],
-    },
-    {
-      t: '团队与应急', sec: 30,
-      p: ['说明三人分工：建模、算法、讲解词', '断网/异常时切本地录屏与降级页', '自检面板逐项亮绿灯再开始'],
-    },
-    {
-      t: '合规说明', sec: 15,
-      p: [
-        '模型自建、素材原创、开源组件清单可查',
-        '麦克风由本机进程直接采集，音频不落盘、不出本机',
-        '顺带说明：宋体标题、琥珀配色、Maya 建模、缓存命中标注与「已取消」记录，都是开发留下的痕迹',
-      ],
-    },
-  ];
-  let demoIdx = -1;
-  let demoWasGuideOpen = false;
-  let demoTimer = 0;
-  let demoLeft = 0;
-
-  function renderDemo() {
-    const d = DEMO[demoIdx];
-    $('demoIdx').textContent = `STEP ${demoIdx + 1} / ${DEMO.length}`;
-    $('demoTitle').textContent = d.t;
-    $('demoPoints').innerHTML = d.p.map((x) => `<li>${x}</li>`).join('');
-    $('demoBar').innerHTML = DEMO.map((_, i) => `<i class="${i < demoIdx ? 'done' : i === demoIdx ? 'cur' : ''}"></i>`).join('');
-    $('demoPrev').disabled = demoIdx === 0;
-    $('demoNext').textContent = demoIdx === DEMO.length - 1 ? '结束演示' : '下一步';
-    demoLeft = d.sec;
-    paintDemoLeft();
-    clearInterval(demoTimer);
-    demoTimer = setInterval(() => {
-      demoLeft = Math.max(0, demoLeft - 1);
-      paintDemoLeft();
-      if (demoLeft === 0) clearInterval(demoTimer);
-    }, 1000);
-  }
-  function paintDemoLeft() {
-    const d = DEMO[demoIdx];
-    if (!d) return;
-    const over = demoLeft === 0;
-    $('demoDur').textContent = over ? `时间到（目标 ${d.sec} 秒）` : `剩余 ${demoLeft} 秒 · 目标 ${d.sec} 秒`;
-    $('demoDur').style.color = demoLeft <= 5 ? '#e0897c' : '';
-  }
-  function startDemo() {
-    demoIdx = 0;
-    demoWasGuideOpen = !$('guidePanel').classList.contains('hide');
-    $('guidePanel').classList.add('hide');
-    $('demoBox').classList.add('show');
-    renderDemo();
-  }
-  function demoStep(n) {
-    demoIdx = Math.max(0, Math.min(DEMO.length - 1, n));
-    renderDemo();
-    const step = DEMO[demoIdx];
-    if (step.t === '技术亮点') openSheet('tech');
-    else if (step.t === '应用价值') { openSheet('review'); switchTab('value'); }
-    else closeSheet();
-  }
-  function endDemo() {
-    demoIdx = -1;
-    clearInterval(demoTimer);
-    $('demoBox').classList.remove('show');
-    if (demoWasGuideOpen) $('guidePanel').classList.remove('hide');
-    closeSheet();
-  }
-  function resetDemo() {
-    resetAll(true);
-    demoStep(0);
-  }
-
-  // 一键复位全场：停播报、清记录、清指标、演示回第一步
+  // 一键复位全场：停播报、清记录、清指标
   function resetAll(silent) {
     handlers.clear();
     clearHistory();
     resetMetrics();
     hideError();
-    if ($('demoBox') && $('demoBox').classList.contains('show')) demoStep(0);
-    if (!silent) toast('已重置：对话、播报与演示进度');
-  }
-
-  function switchTab(name) {
-    document.querySelectorAll('#reviewTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-    document.querySelectorAll('.pane[data-pane]').forEach((p) => p.classList.toggle('on', p.dataset.pane === name));
+    if (!silent) toast('已重置：对话、播报与记录');
   }
 
   // ─────────── 提示 ───────────
@@ -641,10 +512,6 @@ export function createUI({ theme, themeList, guide, handlers }) {
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     });
-    $('reviewTabs').onclick = (e) => {
-      const b = e.target.closest('button');
-      if (b) switchTab(b.dataset.tab);
-    };
     $('btnRecheck').onclick = runSelfCheck;
 
     $('errRetry').onclick = () => { hideError(); if (retryFn) retryFn(); };
@@ -653,33 +520,23 @@ export function createUI({ theme, themeList, guide, handlers }) {
     document.querySelector('.nav').addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b) return;
-      const act = b.dataset.act;
-      if (act === 'demo') {
-        $('demoBox').classList.contains('show') ? endDemo() : startDemo();
-        b.classList.toggle('on', $('demoBox').classList.contains('show'));
-        return;
-      }
       closeSheet();
-      if (act === 'guide') {
+      if (b.dataset.act === 'guide') {
         $('guidePanel').classList.toggle('hide');
         b.classList.toggle('on', !$('guidePanel').classList.contains('hide'));
         return;
       }
-      b.classList.add('on');
-      openSheet(act === 'selfcheck' ? 'check' : act);
+      openSheet('check');
     });
 
     $('btnHistory').onclick = () => {
       $('historyPanel').classList.toggle('hide');
       $('btnHistory').classList.toggle('on', !$('historyPanel').classList.contains('hide'));
     };
-    $('demoPrev').onclick = () => demoStep(demoIdx - 1);    $('demoNext').onclick = () => (demoIdx >= DEMO.length - 1 ? endDemo() : demoStep(demoIdx + 1));
-    $('demoReset').onclick = resetDemo;
-
     $('btnStop').onclick = () => handlers.stop();
     $('btnReplay').onclick = () => handlers.replay();
     $('btnClear').onclick = () => resetAll(false);
-    // R 键随时复位，不一定要先开演示模式；弹层打开时不抢（避免翻资料时误清全场）
+    // R 键随时复位；弹层打开时不抢（避免翻资料时误清全场）
     window.addEventListener('keydown', (e) => {
       const typing = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
       const modalOpen = $('modal').classList.contains('show');
@@ -740,6 +597,6 @@ export function createUI({ theme, themeList, guide, handlers }) {
     pushQA, pushCancelled, clearHistory, renderHistory,
     setElapsed, resetMetrics, loadStats,
     openSheet, closeSheet, toast, showError, hideError, showBanner,
-    runSelfCheck, startDemo, endDemo,
+    runSelfCheck,
   };
 }
