@@ -202,6 +202,40 @@ impl Guide {
         best.filter(|(s, _)| *s >= 0.5).map(|(_, a)| a)
     }
 
+    /// 全库 FAQ 检索：问题里没有展品别名时（「三年是什么意思」「他的子女都有谁」
+    /// 这类由互动问答的「问问小侨」抛出来的追问），原来的流程永远到不了对应展项，
+    /// 只能落进大模型或兜底话术。这里先在全部展项的问答里按问句本身找最像的一条。
+    fn best_faq_global(&self, text: &str) -> Option<(usize, String)> {
+        let raw_q = self.punct.replace_all(text, "").to_string();
+        for (i, ex) in self.theme.exhibits.iter().enumerate() {
+            for f in &ex.faq {
+                if self.punct.replace_all(&f.q, "").to_string() == raw_q {
+                    return Some((i, f.a.clone()));
+                }
+            }
+        }
+        let tokens = self.tokenize(text);
+        if tokens.is_empty() {
+            return None;
+        }
+        let want = self.focus(text);
+        let mut best: Option<(usize, f64, String)> = None;
+        for (i, ex) in self.theme.exhibits.iter().enumerate() {
+            for (j, f) in ex.faq.iter().enumerate() {
+                let have = self.focus(&f.q);
+                if !want.is_empty() && !have.is_empty() && want.intersection(&have).next().is_none()
+                {
+                    continue;
+                }
+                let s = overlap(&tokens, &self.faq_tokens[i][j]);
+                if s >= 0.6 && best.as_ref().is_none_or(|(_, bs, _)| s > *bs) {
+                    best = Some((i, s, f.a.clone()));
+                }
+            }
+        }
+        best.map(|(i, _, a)| (i, a))
+    }
+
     pub fn answer(
         &self,
         text: &str,
@@ -328,7 +362,10 @@ impl Guide {
             }
         }
 
-        // 4. 无实体：按关键词打分
+        // 4. 无实体：先按问句在整库问答里找（互动问答的追问多走这条路），再按关键词打分
+        if let Some((idx, a)) = self.best_faq_global(text) {
+            return self.pack(a, "explain", Some(idx), None);
+        }
         let tokens = self.tokenize(text);
         let mut best: Option<(usize, f64)> = None;
         for (i, ex_tok) in self.ex_tokens.iter().enumerate() {

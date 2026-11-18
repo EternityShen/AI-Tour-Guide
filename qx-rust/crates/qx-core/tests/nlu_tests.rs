@@ -60,6 +60,26 @@ fn exact_faq_question_is_answered_from_kb() {
 }
 
 #[test]
+fn faq_question_without_exhibit_name_is_still_answered() {
+    // 互动问答的「问问小侨」只把 followup 原话发过来，句子里往往没有展品别名
+    //（「三年是什么意思」「他的子女都有谁」）。这类问题必须能在全库问答里命中，
+    // 不能掉进大模型或兜底话术——否则现场演示会出现「答不上来」。
+    let g = guide();
+    for ex in &g.theme.exhibits {
+        for f in &ex.faq {
+            let a = g.answer(&f.q, None, false, None);
+            assert_eq!(a.reply, f.a, "FAQ 问句未被命中: {}（展项 {}）", f.q, ex.id);
+            assert_eq!(
+                a.exhibit.as_deref(),
+                Some(ex.id.as_str()),
+                "命中展项不符: {}",
+                f.q
+            );
+        }
+    }
+}
+
+#[test]
 fn route_and_greeting_intents() {
     let g = guide();
     assert_eq!(g.answer("参观路线", None, false, None).action, "route");
