@@ -1,25 +1,26 @@
 # AI-Tour-Guide · 侨乡·江门 AI 智能讲解员
 
-开平碉楼文化的 AI 导览桌面应用：gpui-kit 原生窗口 + WebView 渲染 **Three.js + VRM 数字人** 前端，内置离线语音识别（Whisper）与离线神经语音合成（VITS），**断网也能完整导览**。
+面向侨乡江门展厅的 AI 导览桌面应用：gpui-kit 原生窗口 + WebView 渲染 Three.js 场景，默认使用「小侨」吉祥物 GLB 外观并复用 VRM 骨架完成口型、视线和手势。语音识别、语音合成与展项知识库均可离线运行，本地 Ollama 提供自由问答和图片理解。
 
-单个可执行文件自包含，前端页面与主题包在编译期打进 exe，运行时释放到临时目录，不依赖 Python 或任何运行时环境。
+前端、主题包、Piper 语音资产与预生成语音在编译期打包进 exe，运行时释放到临时目录，不依赖 Python，也不调用外部 `piper.exe`。**默认构建不把约 1.9 GB 的 ASR 权重嵌入 exe；需要语音识别时，应按下文同时分发 `asr/qwen3-asr-0.6b/`。**
 
 ---
 
-## 一、功能特点
+## 一、当前功能与实现
 
-| 特性 | 说明 |
-|------|------|
-| **跨平台桌面端** | Windows 使用 WebView2，Linux 使用 WebKitGTK；画面与浏览器网页版完全一致 |
-| **Three.js 3D 场景** | 开平碉楼、赤坎骑楼街、梁启超故居、新会陈皮、侨批银信、小鸟天堂等展品原创 GLB 模型 |
-| **VRM 数字人** | 内置「小侨」AI 智能讲解员，支持表情与手势，随讲解内容动态变化 |
-| **离线语音识别 (ASR)** | whisper-rs（静态编译 whisper.cpp），ggml-base-q5_1，16 kHz mono PCM，30 s 上限，静音门限过滤 |
-| **离线语音合成 (TTS)** | sherpa-rs（sherpa-onnx VITS），zh_CN-huayan-medium 女声，内置 espeak-ng G2P，静态链接进 exe |
-| **在线 TTS 兜底** | msedge-tts（纯 Rust），微软 Edge 在线语音（小伊）；`QX_TTS_EDGE=off` 可强制全程离线 |
-| **断网预烘焙语音** | `voice_bake` 赛前把高频讲解词固化为本地 WAV，断网时按缓存键命中，无需联网 |
-| **本地大模型 (LLM)** | 默认走本地 Ollama（`qwen3.5:4b`）；支持 `--model <GGUF>` 本地内嵌推理（Qwen2.5-VL-3B，无需 Ollama） |
-| **离线知识库回退** | 无 Ollama 时自动回到离线知识库问答，脱网也能答展馆相关问题 |
-| **零 Python / 零运行时** | `web/` 与 `themes/` 编译期打包进单文件 exe，拷贝即可运行 |
+| 功能 | 当前实现 |
+|------|----------|
+| **桌面端** | gpui-kit + WebView；Windows 使用 WebView2，代码保留 Linux WebKitGTK 路径 |
+| **三维展厅** | Three.js；开平碉楼、赤坎古镇、梁启超故居、新会陈皮、侨批银信、小鸟天堂等 GLB 展项 |
+| **讲解员** | 默认 `mascot.glb` 吉祥物外观，复用 `avatar.vrm` 骨架；支持表情、口型、手势与镜头联动 |
+| **离线语音识别** | `cpal` 直接采集系统麦克风，`valle-asr` 加载 Qwen3-ASR 0.6B；16 kHz 单声道、能量 VAD 分段，纯 Rust 本地推理 |
+| **离线语音合成** | Rust 直接驱动 Piper VITS `zh_CN-huayan-medium.onnx`；espeak-ng 音素化，ONNX Runtime 推理 |
+| **预生成语音** | `prebuilt-voices/` 中的本地 WAV 随包分发；未命中缓存时使用同一 Piper 离线模型合成 |
+| **本地大模型** | 默认 Ollama `http://127.0.0.1:11434`、模型 `qwen3.5:4b`；也可选择 llama-server、可选 GGUF 内嵌推理或禁用 LLM |
+| **图片理解** | 支持带图 `/api/ask`；Ollama 视觉模型优先按 `capabilities` 中的 `vision` 识别，旧版本回退模型名匹配 |
+| **知识库回退** | 展项讲解、FAQ、互动题面和追问可在本地知识库直接作答；没有可用 LLM 时仍可完成馆内导览 |
+| **实时信息** | 明确的天气、新闻、比分意图会尝试联网查询；失败时使用本地兜底话术，不阻断导览 |
+| **零 Python 运行时** | HTTP 服务、知识库路由、ASR、TTS 与桌面窗口均由 Rust 进程承担 |
 
 ### 本机识图性能实测（2026-11-19）
 
@@ -35,99 +36,124 @@
 
 ## 二、项目结构
 
-```
+```text
 AI-Tour-Guide/
-├── README.md                 # 本文件
+├── README.md                 # 项目说明（本文件）
 ├── LICENSES.md               # 开源组件与素材授权清单
-├── .gitignore
-├── qx-rust/                  # Rust 桌面端工作空间
-│   ├── Cargo.toml            # 工作空间根：qx-core / qx-desktop / embed-model
-│   ├── crates/
-│   │   ├── qx-core           # 架构无关核心层：主题包 / 六级路由 / Ollama 客户端 / 离线知识库
-│   │   ├── qx-desktop        # 主交付：gpui-kit 原生窗口 + WebView（跨平台语音链路都在这里）
-│   │   └── embed-model       # 内嵌 GGUF + mmproj 追加到 exe 尾部（PE overlay）的打包工具
-│   ├── web/                  # 前端页面（Three.js + VRM 数字人 + 聊天 UI），编译期打进 exe
-│   ├── themes/               # 主题包（讲解词、知识库、测验题）
-│   ├── asr/                  # Whisper 模型（ggml-base-q5_1，Git LFS / 本地存放，不进源码）
-│   ├── tts/                  # VITS 模型（zh_CN-huayan-medium）+ espeak-ng G2P 数据（同上）
-│   ├── prebuilt-voices/      # 预烘焙的断网语音（tts-cache 覆盖）
-│   ├── bevy-assets/models/   # 原创 3D 展品模型（GLB）
-│   ├── target/               # 构建产物（不进源码）
-│   ├── voice_bake_report.txt # 语音烘焙报告（运行时生成，不进源码）
-│   └── LOGGING.md            # 日志系统说明
+├── LICENSE                   # 项目 MIT 许可证
+└── qx-rust/                  # Rust 工作空间
+    ├── Cargo.toml            # qx-core / qx-desktop / embed-model
+    ├── crates/
+    │   ├── qx-core/          # 主题包、知识库路由、Ollama 客户端
+    │   ├── qx-desktop/       # 桌面窗口、HTTP/WebSocket、ASR、TTS、语音烘焙
+    │   └── embed-model/      # 可选 GGUF + mmproj 的 exe 尾部打包工具
+    ├── web/                  # Three.js + VRM/GLB 讲解员与交互界面，随包嵌入
+    ├── themes/               # 讲解词、FAQ、互动题库，随包嵌入
+    ├── asr/                  # Qwen3-ASR 0.6B，本地模型不提交 Git
+    ├── tts/                  # Piper ONNX、espeak-ng 与 ONNX Runtime 资产，随包嵌入
+    ├── prebuilt-voices/      # 预生成的本地 WAV 语音
+    ├── bevy-assets/models/   # 原创展项 GLB 模型
+    └── LOGGING.md            # 日志系统说明
 ```
 
 ---
 
-## 三、架构概览
+## 三、运行架构
 
+```text
+┌──────────────────── qx-desktop（Rust）────────────────────┐
+│ gpui-kit 原生窗口                                         │
+│   └─ WebView：Three.js 展厅、吉祥物/VRM 骨架、聊天与控制 UI │
+│ 本地 HTTP / WebSocket                                     │
+│   ├─ 主题包、展项知识库、FAQ 与互动题面检索                │
+│   ├─ Ollama / llama-server / 可选本地 GGUF                 │
+│   ├─ 带图问答与视觉模型探测                                │
+│   ├─ cpal 麦克风采集 → valle-asr / Qwen3-ASR               │
+│   └─ 预生成 WAV 缓存 → Piper VITS / ONNX Runtime           │
+└───────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────┐
-│              qx-desktop (Rust gpui-kit + WebView)       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
-│  │  原生窗口    │  │   WebView   │  │   本地 HTTP 服务   │ │
-│  │ (Windows:   │  │ (WebView2 / │  │  theme / kb /   │ │
-│  │  WebView2)  │  │  WebKitGTK) │  │  Ollama / LLM   │ │
-│  └─────────────┘  └─────────────┘  │  ASR / TTS /    │ │
-│                                    │  voice_bake ... │ │
-│  渲染 web/ 页面（Three.js + VRM）   └─────────────────┘ │
-│        (编译期打进 exe，运行时释放到临时目录)           │
-└─────────────────────────────────────────────────────────┘
-```
+
+`web/`、`themes/`、`tts/` 和 `prebuilt-voices/` 由 `build.rs` 打进 exe。启动时释放到系统临时目录中的版本化 bundle；ASR 默认外置，避免 Windows 无法启动超过约 2 GB 的 exe。
 
 ---
 
-## 四、语音链路（全部跨平台）
+## 四、语音链路
 
 | 环节 | 实现 | 说明 |
 |------|------|------|
-| 语音识别（ASR） | `whisper-rs`（静态编译 whisper.cpp） | ggml-base-q5_1 模型，16kHz mono PCM，30 s 上限，静音门限过滤 |
-| 离线 TTS | `sherpa-rs`（sherpa-onnx VITS） | zh_CN-huayan-medium 模型，内置 C++ espeak-ng 做 G2P，静态链接进 exe |
-| 在线 TTS | `msedge-tts`（纯 Rust） | 微软 Edge 在线语音（小伊），`QX_TTS_EDGE=off` 可强制全程离线 |
-| 断网兜底 | `voice_bake` 预烘焙 | 赛前烘焙高频讲解词到 `tts-cache`，断网时按缓存键命中 |
+| 麦克风采集 | `cpal` | 后端直接打开默认输入设备，支持采样格式/多声道转换与 16 kHz 重采样 |
+| 语音识别 | `valle-asr 0.2.0` + Qwen3-ASR 0.6B | 本地能量 VAD 分段，Partial/Final 结果通过 `/ws/asr` 发给前端 |
+| 语音合成 | Piper VITS + espeak-ng + ONNX Runtime | `zh_CN-huayan-medium`，22.05 kHz 单声道 WAV；DLL 随内嵌 TTS 资产释放并动态加载 |
+| 缓存与烘焙 | `prebuilt-voices/` / `tts-cache/` | 优先播放已有 WAV；`--bake-voices` 使用本地 Piper 批量补齐缺失语音 |
+| 降级 | 本地静音 WAV + 字幕 | Piper 资产不可用或合成失败时保留文字、口型和镜头流程，不调用云端 TTS |
 
-环境变量调音（离线 VITS）：`QX_TTS_NOISE_SCALE` / `QX_TTS_LENGTH_SCALE` / `QX_TTS_NOISE_W`。
+ASR 模型查找顺序：
+
+1. `QX_ASR_MODEL_DIR` 指定的目录；
+2. exe 同级 `asr/qwen3-asr-0.6b/` 或 `asr/Qwen3-ASR-0.6B/`；
+3. 内嵌/释放的 bundle `asr/`（仅 `QX_EMBED_ASR=1` 构建）；
+4. 开发构建的源码树模型目录。
+
+模型目录至少包含 `config.json`、`model.safetensors`，以及 `tokenizer.json`，或旧式 `vocab.json` + `merges.txt` + `tokenizer_config.json`。程序不会在运行时自动下载模型。
 
 ---
 
 ## 五、快速开始
 
-### 1. 依赖
+### 1. 环境
 
-- Rust（edition 2024，建议最新 stable）
-- CMake + C/C++ 工具链（首次编译静态链接 sherpa-onnx 与 whisper.cpp 用，各需几分钟）
+当前完整交付以 **Windows 10/11 x64** 为主：
 
-**Linux 附加：**
-- WebKitGTK 运行库（Arch: `pacman -S webkit2gtk-4.1`）
-- clang / libclang
+- 最新 stable Rust（工作空间使用 edition 2024）；
+- MSVC C++ Build Tools；
+- WebView2 Runtime（通常系统已自带）；
+- 可选：Ollama + `qwen3.5:4b`，用于自由问答和看图。
 
-**Windows 附加：**
-- MSVC 工具链 + WebView2（Win10/11 自带）
+默认 ASR/TTS 路径不需要 Python，也不需要安装或单独运行 `piper.exe`。可选 `local-llm` 内嵌推理构建另需完整的 C/C++ 编译环境。
 
-### 2. 构建与运行
+### 2. 准备 ASR 模型
 
-```bash
-# 进入 Rust 工作空间
-cd qx-rust
+开发运行时把模型放到：
 
-# 运行桌面端（默认端口 8765，走本地 Ollama / qwen3.5:4b）
-cargo run -p qx-desktop
-
-# 全部测试（含 TTS/ASR 冒烟）
-cargo test --workspace
-
-# 无头模式（仅起 HTTP 服务，不开窗口，便于 curl /api/ask 验证）
-QX_HEADLESS=1 cargo run -p qx-desktop
-
-# 发布构建（轻量优化，缩短编译时间并减小 exe 体积）
-cargo build --release -p qx-desktop
+```text
+qx-rust/asr/qwen3-asr-0.6b/
 ```
 
-### 3. 大模型后端
+分发时默认放到：
 
-LLM 后端默认指向本地 Ollama（`qwen3.5:4b`），无 Ollama 时自动回退到离线知识库问答。
+```text
+qx-desktop.exe
+asr/qwen3-asr-0.6b/
+```
 
-启用本地 GGUF 内嵌推理（需 `cargo build --features local-llm`，构建机需装 C/C++ 工具链）：
+也可以用 `QX_ASR_MODEL_DIR` 指向模型目录。缺少模型时，文字问答与 TTS 仍可使用，自检会如实显示语音识别不可用。
+
+### 3. 构建与运行
+
+```bash
+cd qx-rust
+
+# 开发运行，默认 HTTP 端口 8765
+cargo run -p qx-desktop
+
+# 无头模式，仅启动本地 HTTP 服务
+QX_HEADLESS=1 cargo run -p qx-desktop
+
+# 全部测试
+cargo test --workspace
+
+# 发布构建
+cargo build --release -p qx-desktop
+
+# 可选：使用本地 Piper 烘焙预生成语音
+cargo run -p qx-desktop -- --bake-voices
+```
+
+### 4. 大模型后端
+
+默认连接本机 Ollama `http://127.0.0.1:11434`，模型为 `qwen3.5:4b`。Ollama 不可用时不影响本地知识库导览；自由问答与图片理解会使用相应降级话术。
+
+可选 GGUF 内嵌推理：
 
 ```bash
 cargo run -p qx-desktop --features local-llm -- --model /path/to/model.gguf
@@ -137,78 +163,56 @@ cargo run -p qx-desktop --features local-llm -- --model /path/to/model.gguf
 
 ## 六、命令行参数
 
-运行 `qx-desktop` 时支持以下参数：
-
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--bake-voices` | 赛前联网跑一次：把现场会说的每句话固化成语音并写报告文件 | — |
-| `--model <路径>` | 使用本地 GGUF 模型（需 `--features local-llm` 构建） | — |
+| `--bake-voices` | 使用本地 Piper 批量生成缺失的讲解与问答 WAV，并写烘焙报告 | 关闭 |
+| `--model <路径>` | 使用本地 GGUF；需要 `local-llm` feature | — |
 | `--ollama-url <URL>` | Ollama / llama-server 兼容协议地址 | `http://127.0.0.1:11434` |
-| `--ollama-model <名>` | 模型名 | `qwen3.5:4b` |
-| `--llm-backend <auto\|ollama\|llama\|local\|none>` | LLM 后端选择 | `auto` |
+| `--ollama-model <名>` | Ollama 模型名 | `qwen3.5:4b` |
+| `--llm-backend <auto\|ollama\|llama\|local\|none>` | 选择 LLM 后端 | `auto` |
 
 ---
 
-## 七、环境变量
+## 七、常用环境变量
 
-| 环境变量 | 说明 | 默认值 |
-|----------|------|--------|
-| `QX_PORT` | HTTP 服务端口（被占用时自动顺延 8765~8772） | `8765` |
-| `QX_HEADLESS=1` | 无头模式，只起 HTTP 不创建窗口 | — |
-| `QX_LOG_DIR` | 日志目录 | Windows: `%LOCALAPPDATA%\QiaoxiangGuide\logs`<br>Linux: `~/.local/share/QiaoxiangGuide/logs` |
-| `QX_TTS_EDGE=off` | 强制全程离线 TTS（禁用微软 Edge 在线语音） | — |
-| `QX_TTS_NOISE_SCALE` / `QX_TTS_LENGTH_SCALE` / `QX_TTS_NOISE_W` | 离线 VITS 调音参数 | — |
-| `QX_NO_EMBEDDED_MODEL=1` | 关闭内嵌 Qwen2.5-VL-3B 模型，回退到 Ollama / `--model` | — |
-| `QX_LLM_SELFTEST=1` | 本地模型自检（仅 `local-llm` 构建可用） | — |
-| `QX_VOICE_BAKE_DIR` | 语音烘焙输出目录 | 编译时源码根 |
+| 环境变量 | 说明 |
+|----------|------|
+| `QX_PORT` | HTTP 起始端口，默认 `8765`；被占用时向后尝试最多 8 个端口 |
+| `QX_HEADLESS=1` | 只启动 HTTP 服务，不创建窗口 |
+| `QX_ASR_MODEL_DIR` | 指定 Qwen3-ASR 模型目录 |
+| `QX_ASR_NO_WARMUP=1` | 跳过启动时的 ASR 权重预热，首次识别会变慢 |
+| `QX_EMBED_ASR=1` | 构建时嵌入 ASR 权重；默认不嵌入，超大 exe 在部分 Windows 上无法启动 |
+| `QX_TTS_NOISE_SCALE` / `QX_TTS_LENGTH_SCALE` / `QX_TTS_NOISE_W` | 覆盖 Piper 推理调音参数 |
+| `QX_VOICE_BAKE_DIR` | 指定语音烘焙输出根目录，默认写回编译时源码根 |
+| `QX_VOICE_BAKE_CACHE` | 指定搬运运行时 WAV 缓存的来源目录 |
+| `QX_NO_EMBEDDED_MODEL=1` | `local-llm` 构建中禁用 exe 内嵌模型 |
+| `QX_LLM_SELFTEST=1` | 执行本地 GGUF 自检，不启动窗口或 HTTP 服务 |
+| `QX_LOG_DIR` | 覆盖日志目录 |
+| `QX_LOG` | 日志过滤级别，语法同 `RUST_LOG` |
 
 ---
 
-## 八、平台注意事项
+## 八、平台说明
 
-### Linux + NVIDIA / Wayland
-
-程序启动时会自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（WebKitGTK 的 DMABUF 渲染器在 NVIDIA 下分配 GBM buffer 失败会导致黑屏），并固定 X11 窗口模式（XWayland 下正常工作），无需手动干预。
-
-### Linux 静态链接
-
-`.cargo/config.toml` 为 Linux 目标设置 `relocation-model=dynamic-no-pic`（sherpa-onnx 静态库要求），对 Windows 构建无影响。
-
-### 首次构建
-
-sherpa-rs 会用 CMake 源码编译 sherpa-onnx（含 onnxruntime），结果静态链接进 exe。**不要使用其默认的 `download-binaries` 预编译包**（缺静态库，且内置的裁剪版 onnxruntime 会触发 `GetElementType is not implemented` 崩溃）。
+- **Windows**：当前完整测试与交付平台；WebView2 窗口、Piper/espeak-ng/ONNX Runtime DLL、cpal/WASAPI 均在此路径运行。
+- **Linux**：桌面壳保留 WebKitGTK/X11 路径与 NVIDIA DMABUF 规避逻辑；当前 Piper 实现仍直接加载 Windows DLL，不能据此宣称 Linux 已获得完整语音支持。
+- **macOS**：cpal 支持 CoreAudio，但当前完整桌面与 TTS 链路尚未作为可交付平台验证。
 
 ---
 
 ## 九、日志
 
-按天滚动、保留 14 天，写入用户数据目录（可用 `QX_LOG_DIR` 覆盖）。文件落盘由自研异步日志库 [`shen_eternity_log`](https://github.com/EternityShen/shen_eternity_log) 承担（后台 tokio 写入线程，逐条 flush）。详见 `qx-rust/LOGGING.md`。
+按天滚动、保留 14 天，写入用户数据目录，可用 `QX_LOG_DIR` 覆盖：
+
+- Windows：`%LOCALAPPDATA%\QiaoxiangGuide\logs`
+- Linux：`~/.local/share/QiaoxiangGuide/logs`
+
+文件落盘由 [`shen_eternity_log`](https://github.com/EternityShen/shen_eternity_log) 的后台 tokio 写入线程承担。详见 [`qx-rust/LOGGING.md`](qx-rust/LOGGING.md)。
 
 ---
 
-## 十、授权与第三方组件
+## 十、授权
 
-本项目使用的开源组件与素材授权清单见 [`LICENSES.md`](LICENSES.md)，主要包括：
+项目代码按 [MIT License](LICENSE) 分发。Three.js、three-vrm、valle-asr、cpal、Qwen3-ASR、Piper、ONNX Runtime、espeak-ng 等组件及素材授权见 [`LICENSES.md`](LICENSES.md)，各组件保持其原始许可证。
 
-- **Three.js** (MIT) — 3D 渲染
-- **@pixiv/three-vrm** (MIT) — VRM 数字人加载与表情
-- **sherpa-onnx** (Apache-2.0) — 离线语音识别
-- **Piper / VITS** (MIT) — 离线神经语音合成
-- **ONNX Runtime** (MIT) — 神经网络推理运行时
-- **espeak-ng** (GPL-3.0) — 中文音素化
-- **msedge-tts** (LGPL-3.0) — 构建期批量生成讲解语音（仅赛前使用，未随 exe 分发）
-- **whisper.cpp** — 离线语音识别底层
-
-展品三维模型、讲解词与问答库、场景与展台均为团队原创，详见 `LICENSES.md`。
-
----
-
-## 十一、许可证
-
-本项目采用 [MIT License](LICENSE) 开源协议。
-
-第三方开源组件及素材的授权详见 [`LICENSES.md`](LICENSES.md)，其中部分组件（如 espeak-ng GPL-3.0、msedge-tts LGPL-3.0）遵循其各自原始许可证，项目本身代码按 MIT 分发。
-
----
-
-> 侨乡·江门 AI 智能讲解员 —— 让碉楼、骑楼、陈皮、侨批，在离线也能说出口。
+> 侨乡·江门 AI 智能讲解员 —— 让碉楼、骑楼、陈皮、侨批，在本地也能听见、看懂、说出口。

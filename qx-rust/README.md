@@ -1,59 +1,92 @@
 # 侨乡 AI 智能讲解员（qx-rust）
 
-开平碉楼文化的 AI 导览桌面应用：GPUI 原生窗口 + WebView 渲染 Three.js + VRM 数字人前端，内置离线语音识别（Qwen3-ASR）与离线神经语音合成（VITS），断网也能完整导览。
+Rust 桌面端工作空间：gpui-kit 原生窗口 + WebView 渲染 Three.js 展厅，默认以 `mascot.glb` 吉祥物外观复用 VRM 骨架。离线语音由 **cpal + valle-asr / Qwen3-ASR 0.6B** 和 **Piper VITS + ONNX Runtime** 实现，本地知识库可独立完成展项导览，Ollama 提供自由问答与看图能力。
 
-## 架构
+## 工作空间结构
 
-```
+```text
 qx-rust/
 ├── crates/
-│   ├── qx-core      # 架构无关核心：主题包 / 六级路由 / Ollama 客户端 / 离线知识库
-│   ├── qx-desktop   # 主交付：gpui-kit 原生窗口 + WebView（跨平台语音链路都在这里）
-│   └── embed-model  # 内嵌模型打包工具
-├── web/             # 前端页面（Three.js + VRM 数字人 + 聊天 UI），编译期打进 exe
-├── themes/          # 主题包（讲解词、知识库、测验题）
-├── tts/             # VITS 模型（zh_CN-huayan-medium）+ espeak-ng G2P 数据
-├── asr/             # Qwen3-ASR 0.6B 模型（qwen3-asr-0.6b/）
-├── prebuilt-voices/ # 预烘焙的断网语音（tts-cache 覆盖）
-└── tools/           # voice_bake 等辅助脚本
+│   ├── qx-core/       # 主题包、知识库与 FAQ/互动题检索、Ollama 客户端
+│   ├── qx-desktop/    # 主程序：桌面窗口、HTTP/WebSocket、ASR、TTS、语音烘焙
+│   └── embed-model/   # 可选 GGUF + mmproj 的 exe 尾部打包工具
+├── web/               # Three.js 场景、VRM/GLB 讲解员与交互 UI，随包嵌入
+├── themes/            # 讲解词、FAQ、互动题库，随包嵌入
+├── asr/               # Qwen3-ASR 0.6B（本地权重，不提交 Git）
+├── tts/               # Piper ONNX、espeak-ng 与 ONNX Runtime 资产，随包嵌入
+└── prebuilt-voices/   # 本地 Piper 预生成 WAV，随包嵌入
 ```
 
-- **web/ 与 themes/ 编译期打包进 exe，运行时释放到临时目录**——单个可执行文件自包含，不依赖 Python 或任何运行时环境。
-- Windows 用 WebView2，Linux 用 WebKitGTK；画面与浏览器版完全一致。
+`build.rs` 把 `web/`、`themes/`、`tts/`、`prebuilt-voices/` 打进 exe，运行时释放到版本化临时目录。默认不嵌入 ASR 权重，因此**能独立启动的 exe 不等于包含语音识别模型**。
 
-## 语音链路（全部跨平台）
+## 当前语音链路
 
 | 环节 | 实现 | 说明 |
 |------|------|------|
-| 语音识别（ASR） | `cpal` 采集 + `valle-asr`（Qwen3-ASR 0.6B，纯 Rust CPU 推理） | 后端直接打开系统默认麦克风，16kHz mono，能量 VAD 自动分段；模型完全本地加载，不联网、不调用外部 exe |
-| 离线 TTS | `sherpa-rs`（sherpa-onnx VITS） | zh_CN-huayan-medium 模型，内置 C++ espeak-ng 做 G2P，静态链接进 exe |
-| 在线 TTS | `msedge-tts`（纯 Rust） | 微软 Edge 在线语音（小伊），`QX_TTS_EDGE=off` 可强制全程离线 |
-| 断网兜底 | `voice_bake` 预烘焙 | 赛前烘焙高频讲解词到 tts-cache，断网时按缓存键命中 |
+| 麦克风 | `cpal 0.18` | 后端直接打开默认输入设备，不再依赖浏览器音频上传 |
+| ASR | `valle-asr 0.2.0` / Qwen3-ASR 0.6B | 16 kHz 单声道、能量 VAD、Partial/Final 结果；纯 Rust 本地推理 |
+| TTS | Piper `zh_CN-huayan-medium.onnx` | Rust 直接驱动 ONNX Runtime，espeak-ng 负责中文音素化 |
+| 运行时依赖 | `tts/onnxruntime.dll`、`tts/espeak-ng.dll` | 随内嵌资产释放并动态加载，不调用外部 `piper.exe` |
+| 缓存 | `prebuilt-voices/` + `tts-cache/` | 优先播放已有 WAV，未命中时使用同一 Piper 模型实时合成 |
+| 降级 | 静音 WAV + 字幕 | 本地合成失败时不切换云端音色，也不阻断文字与画面 |
 
-环境变量调音（离线 VITS）：`QX_TTS_NOISE_SCALE` / `QX_TTS_LENGTH_SCALE` / `QX_TTS_NOISE_W`。
+Piper 调音环境变量：`QX_TTS_NOISE_SCALE`、`QX_TTS_LENGTH_SCALE`、`QX_TTS_NOISE_W`。
 
-离线 ASR 模型默认从 `asr/qwen3-asr-0.6b`、`asr/Qwen3-ASR-0.6B` 或环境变量 `QX_ASR_MODEL_DIR` 指定的目录加载；目录内需有 `config.json`、`model.safetensors`，以及 `tokenizer.json`（或旧式 `vocab.json` + `merges.txt` + `tokenizer_config.json`）。模型不会在运行时下载。启动时默认用 0.5 秒静音预热权重，`QX_ASR_NO_WARMUP=1` 可跳过预热（首次说话会变慢）。
+## ASR 模型与分发
 
-分发时有两种放法：把模型目录放在 exe 同级 `asr/qwen3-asr-0.6b`，exe 保持较小；或把模型放进源码树 `qx-rust/asr/` 并用 `QX_EMBED_ASR=1` 构建，打进 exe（单文件自包含，但 exe 会增大约 1.9 GB，链接更慢，且 >2 GB 的 exe 在部分 Windows 上会报「不是有效的应用程序」无法启动，因此默认不嵌入）。
+模型查找顺序为：
+
+1. `QX_ASR_MODEL_DIR`；
+2. exe 同级 `asr/qwen3-asr-0.6b/` 或 `asr/Qwen3-ASR-0.6B/`；
+3. 内嵌 bundle 的 `asr/`；
+4. 开发构建的源码树模型目录。
+
+目录需要 `config.json`、`model.safetensors`，以及 `tokenizer.json`，或旧式 `vocab.json` + `merges.txt` + `tokenizer_config.json`。模型不会在运行时下载。
+
+默认分发方式：
+
+```text
+qx-desktop.exe
+asr/qwen3-asr-0.6b/
+```
+
+只有设置 `QX_EMBED_ASR=1` 构建时才把权重随包嵌入。约 1.9 GB 的权重会使 exe 超过部分 Windows 可启动的大小范围，因此默认外置。启动时用 0.5 秒静音预热 ASR；`QX_ASR_NO_WARMUP=1` 可跳过，但首次识别会变慢。
 
 ## 构建与运行
 
+当前完整交付平台是 **Windows 10/11 x64**。
+
 ### 依赖
 
-- Rust（edition 2024，建议最新 stable）
-- CMake + C/C++ 工具链（首次编译静态链接 sherpa-onnx 用，需几分钟；ASR 为纯 Rust，无需额外工具链）
-- Linux 附加：WebKitGTK 运行库（Arch: `pacman -S webkit2gtk-4.1`）、ALSA 开发库（Arch: `alsa-lib`；Debian/Ubuntu: `libasound2-dev`）、clang/libclang
-- Windows 附加：MSVC 工具链 + WebView2（Win10/11 自带）
+- stable Rust（edition 2024）；
+- MSVC C++ Build Tools 与 WebView2；
+- 默认 ASR/TTS 路径不需要 Python、CMake 或外部 `piper.exe`；
+- 可选 `local-llm` 内嵌推理构建另需完整 C/C++ 编译环境；
+- 可选 Ollama `qwen3.5:4b`，默认地址 `http://127.0.0.1:11434`。
 
 ### 命令
 
 ```bash
-cargo run -p qx-desktop          # 运行桌面端
-cargo test --workspace           # 全部测试（含 TTS/ASR 冒烟）
-QX_HEADLESS=1 cargo run -p qx-desktop   # 无头模式（仅起 HTTP 服务，不开窗口）
+# 开发运行
+cargo run -p qx-desktop
+
+# 无头 HTTP 服务
+QX_HEADLESS=1 cargo run -p qx-desktop
+
+# 全部测试
+cargo test --workspace
+
+# 发布构建
+cargo build --release -p qx-desktop
+
+# 用本地 Piper 补齐预生成语音并写报告
+cargo run -p qx-desktop -- --bake-voices
+
+# 可选 GGUF 内嵌推理
+cargo run -p qx-desktop --features local-llm -- --model /path/to/model.gguf
 ```
 
-LLM 后端默认指向本地 Ollama（`qwen3.5:4b`），无 Ollama 时自动回退到离线知识库问答。
+LLM 参数支持 `--ollama-url`、`--ollama-model`、`--llm-backend <auto|ollama|llama|local|none>`。Ollama 不可用时，展项知识库仍可离线作答；自由问答和看图会进入明确的降级路径。
 
 ## 本机性能实测（2026-11-19）
 
@@ -72,11 +105,10 @@ LLM 后端默认指向本地 Ollama（`qwen3.5:4b`），无 Ollama 时自动回�
 
 ## 平台注意事项
 
-- **Linux + NVIDIA / Wayland**：程序启动时会自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（WebKitGTK 的 DMABUF 渲染器在 NVIDIA 下分配 GBM buffer 失败会导致黑屏）并固定 X11 窗口模式（XWayland 下正常工作），无需手动干预。
-- **Linux 静态链接**：`.cargo/config.toml` 为 Linux 目标设置 `relocation-model=dynamic-no-pic`（sherpa-onnx 静态库要求），对 Windows 构建无影响。
-- **macOS 麦克风权限**：cpal 直接访问系统输入设备；打包 .app 时需在 `Info.plist` 写入 `NSMicrophoneUsageDescription`，否则系统会拒绝采集。
-- 首次构建时 sherpa-rs 会用 CMake 源码编译 sherpa-onnx（含 onnxruntime），结果静态链接进 exe——不要使用其默认的 `download-binaries` 预编译包（缺静态库，且内置的裁剪版 onnxruntime 会触发 `GetElementType is not implemented` 崩溃）。
+- **Windows**：当前完整测试与交付平台，使用 WebView2、cpal/WASAPI 和随包的 Piper DLL。
+- **Linux**：桌面壳保留 WebKitGTK/X11 与 NVIDIA DMABUF 规避逻辑，但当前 `piper.rs` 直接加载 Windows DLL，完整语音平台支持尚未完成。
+- **macOS**：cpal 可对接 CoreAudio，但完整桌面与 TTS 链路尚未验证，不应按已支持平台分发。
 
 ## 日志
 
-按天滚动、保留 14 天，写入用户数据目录（Windows：`%LOCALAPPDATA%\QiaoxiangGuide\logs`；Linux：`~/.local/share/QiaoxiangGuide/logs`，可用 `QX_LOG_DIR` 覆盖）。文件落盘由自研异步日志库 [shen_eternity_log](https://github.com/EternityShen/shen_eternity_log) 承担（后台 tokio 写入线程，逐条 flush）。详见 [LOGGING.md](LOGGING.md)。
+按天滚动、保留 14 天；Windows 默认 `%LOCALAPPDATA%\QiaoxiangGuide\logs`，可用 `QX_LOG_DIR` 覆盖，`QX_LOG` 控制过滤级别。文件落盘由 [shen_eternity_log](https://github.com/EternityShen/shen_eternity_log) 的后台 tokio 写入线程承担。详见 [LOGGING.md](LOGGING.md)。
